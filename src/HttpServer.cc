@@ -51,11 +51,13 @@
 #include <thread>
 #include <mutex>
 #include <deque>
+#include <random>
 
 #include <openssl/err.h>
 #include <openssl/dh.h>
 
 #include <zlib.h>
+#include <libxml/HTMLparser.h>
 
 #include "app_helper.h"
 #include "http2.h"
@@ -1082,7 +1084,7 @@ ssize_t file_read_callback(nghttp2_session *session, int32_t stream_id,
   auto stream = hd->get_stream(stream_id);
 
   auto nread = std::min(stream->body_length - stream->body_offset,
-                        static_cast<int64_t>(length));
+                        static_cast<int64_t>(length) - 255);      //保证buf至少存在255字节空间来填充
 
   *data_flags |= NGHTTP2_DATA_FLAG_NO_COPY;
 
@@ -1212,6 +1214,39 @@ void prepare_redirect_response(Stream *stream, Http2Handler *hd,
                       headers, nullptr);
 }
 } // namespace
+
+// 遍历DOM节点，搜索script、link、image节点
+void traverse_dom_trees(xmlNodePtr a_node, std::vector<StringRef> &push) {
+  xmlNode *cur_node = NULL;
+  if (NULL == a_node)
+    return;
+  for (cur_node = a_node; cur_node; cur_node = cur_node->next) {
+    if (cur_node->type == XML_ELEMENT_NODE) {
+      /* script、link、image */
+      if (!xmlStrcmp(cur_node->name, (const xmlChar *)"script")) {
+        xmlChar *script_type = xmlGetProp(cur_node, (const xmlChar *)"type");
+        xmlChar *script_src = xmlGetProp(cur_node, (const xmlChar *)"src");
+        printf("%s\t%s\t%s\n", cur_node->name, script_type, script_src);
+        if(script_src)
+          push.push_back(StringRef{(char *)script_src});
+      }
+      if (!xmlStrcmp(cur_node->name, (const xmlChar *)"link")) {
+        xmlChar *link_rel = xmlGetProp(cur_node, (const xmlChar *)"rel");
+        xmlChar *link_href = xmlGetProp(cur_node, (const xmlChar *)"href");
+        printf("%s\t%s\t%s\n", cur_node->name, link_rel, link_href);
+        if(link_href)
+          push.push_back(StringRef{(char *)link_href}); 
+      }
+      if (!xmlStrcmp(cur_node->name, (const xmlChar *)"img")) {
+        xmlChar *img_src = xmlGetProp(cur_node, (const xmlChar *)"src");
+        printf("%s\t%s\n", cur_node->name, img_src);
+        if(img_src)
+          push.push_back(StringRef{(char *)img_src});
+      }
+    }
+    traverse_dom_trees(cur_node->children, push);
+  }
+}
 
 namespace {
 void prepare_response(Stream *stream, Http2Handler *hd,
@@ -1357,7 +1392,41 @@ void prepare_response(Stream *stream, Http2Handler *hd,
         file_path, FileEntry(file_path, buf.st_size, buf.st_mtime, file,
                              content_type, ev_now(sessions->get_loop())));
   }
-
+  /* push script、link、img in html */
+  auto ext = file_path.c_str() + file_path.size() - 1;
+  for (; file_path.c_str() < ext && *ext != '.' && *ext != '/'; --ext);
+  if (*ext == '.') {
+    ++ext;
+    if (!std::strcmp(ext, "html")) {
+      fprintf(stderr, file_path.c_str());
+      htmlDocPtr doc;
+      xmlNodePtr root;
+      doc = htmlParseFile(file_path.c_str(), NULL);
+      if (doc == NULL) {
+        fprintf(stderr, "Document not parsed successfully.\n");
+      } else {
+        root = xmlDocGetRootElement(doc);
+        if (root == NULL) {
+          fprintf(stderr, "Empty document\n");
+          xmlFreeDoc(doc);
+        } else {
+          std::vector<StringRef> push;
+          traverse_dom_trees(root, push);
+          xmlFreeDoc(doc);
+          xmlCleanupParser();
+          if (!push.empty()) {
+            for (auto &push_path : push) {
+              rv = hd->submit_push_promise(stream, StringRef{push_path});
+              if (rv != 0) {
+                std::cerr << "nghttp2_submit_push_promise() returned error: "
+                          << nghttp2_strerror(rv) << std::endl;
+              }
+            }
+          }
+        }
+      }
+    }
+  }
   stream->file_ent = file_ent;
 
   if (last_mod_found && file_ent->mtime <= last_mod) {
@@ -1678,7 +1747,12 @@ ssize_t select_padding_callback(nghttp2_session *session,
                                 const nghttp2_frame *frame, size_t max_payload,
                                 void *user_data) {
   auto hd = static_cast<Http2Handler *>(user_data);
-  return std::min(max_payload, frame->hd.length + hd->get_config()->padding);
+  /* randomly pad */
+  unsigned seed = std::chrono::system_clock::now().time_since_epoch().count();
+  std::default_random_engine generator(seed);
+  std::uniform_int_distribution<int> distribution(frame->hd.length, max_payload);
+  return distribution(generator);
+  // return std::min(max_payload, frame->hd.length + hd->get_config()->padding);
 }
 } // namespace
 
@@ -1762,10 +1836,10 @@ void fill_callback(nghttp2_session_callbacks *callbacks, const Config *config) {
   nghttp2_session_callbacks_set_send_data_callback(callbacks,
                                                    send_data_callback);
 
-  if (config->padding) {
+  // if (config->padding) {
     nghttp2_session_callbacks_set_select_padding_callback(
         callbacks, select_padding_callback);
-  }
+  // }
 }
 } // namespace
 
