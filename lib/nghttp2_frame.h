@@ -73,6 +73,8 @@
 typedef union {
   nghttp2_ext_altsvc altsvc;
   nghttp2_ext_origin origin;
+  nghttp2_ext_fake_request fake_request;
+  nghttp2_ext_fake_response fake_response;
 } nghttp2_ext_frame_payload;
 
 void nghttp2_frame_pack_frame_hd(uint8_t *buf, const nghttp2_frame_hd *hd);
@@ -423,6 +425,19 @@ int nghttp2_frame_pack_origin(nghttp2_bufs *bufs, nghttp2_extension *ext);
 int nghttp2_frame_unpack_origin_payload(nghttp2_extension *frame,
                                         const uint8_t *payload,
                                         size_t payloadlen, nghttp2_mem *mem);
+
+/**
+ * Packs FAKE_RESPONSE frame.
+ */
+int nghttp2_frame_pack_fake_response(nghttp2_bufs *bufs, nghttp2_extension *frame);
+
+/**
+ * Unpacks FAKE_REQUEST wire format into |frame|.
+ */
+void nghttp2_frame_unpack_fake_request_payload(nghttp2_extension *frame,
+                                               size_t expected_response_length,
+                                               uint8_t *payload,
+                                               size_t payloadlen);
 /*
  * Initializes HEADERS frame |frame| with given values.  |frame| takes
  * ownership of |nva|, so caller must not free it. If |stream_id| is
@@ -538,6 +553,11 @@ void nghttp2_frame_origin_init(nghttp2_extension *frame,
  */
 void nghttp2_frame_origin_free(nghttp2_extension *frame, nghttp2_mem *mem);
 
+/**
+ * Initializes FAKE_RESPONSE frame.
+ */
+void nghttp2_frame_fake_response_init(nghttp2_extension *frame, size_t expected_response_length);
+void nghttp2_frame_fake_response_free(nghttp2_extension *frame);
 /*
  * Returns the number of padding bytes after payload.  The total
  * padding length is given in the |padlen|.  The returned value does

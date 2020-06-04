@@ -634,7 +634,9 @@ typedef enum {
    * The ORIGIN frame, which is defined by `RFC 8336
    * <https://tools.ietf.org/html/rfc8336>`_.
    */
-  NGHTTP2_ORIGIN = 0x0c
+  NGHTTP2_ORIGIN = 0x0c,
+  NGHTTP2_FAKE_REQUEST = 0x0d,
+  NGHTTP2_FAKE_RESPONSE = 0x0e
 } nghttp2_frame_type;
 
 /**
@@ -4677,6 +4679,34 @@ NGHTTP2_EXTERN int nghttp2_submit_origin(nghttp2_session *session,
                                          uint8_t flags,
                                          const nghttp2_origin_entry *ov,
                                          size_t nov);
+
+/**
+ * @struct
+ * 
+ * The payload of FAKE_REQUEST frame.
+ */
+typedef struct {
+  /**
+   * An unsigned 32-bit integer that indicates the size of expected FAKE_RESPONSE frame.
+   */
+  size_t expected_response_length;
+  /**
+   * The dummy length of FAKE_REQUEST frame.
+  */
+  size_t dummy_length;
+} nghttp2_ext_fake_request;
+
+/**
+ * @struct
+ * 
+ * The payload of FAKE_REQUEST frame.
+ */
+typedef struct {
+  /**
+   * The dummy length of FAKE_REQUEST frame.
+  */
+  size_t dummy_length;
+} nghttp2_ext_fake_response;
 
 /**
  * @function

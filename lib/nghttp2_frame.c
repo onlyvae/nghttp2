@@ -253,6 +253,15 @@ void nghttp2_frame_origin_free(nghttp2_extension *frame, nghttp2_mem *mem) {
   nghttp2_mem_free(mem, origin->ov);
 }
 
+void nghttp2_frame_fake_response_init(nghttp2_extension *frame, size_t expected_response_length) {
+  nghttp2_ext_fake_response *fake_response;
+  nghttp2_frame_hd_init(&frame->hd, expected_response_length, NGHTTP2_FAKE_RESPONSE, NGHTTP2_FLAG_NONE, 0);
+  fake_response = frame->payload;
+  fake_response->dummy_length = expected_response_length;
+}
+
+void nghttp2_frame_fake_response_free(nghttp2_extension *frame) { (void)frame; }
+
 size_t nghttp2_frame_priority_len(uint8_t flags) {
   if (flags & NGHTTP2_FLAG_PRIORITY) {
     return NGHTTP2_PRIORITY_SPECLEN;
@@ -874,6 +883,37 @@ int nghttp2_frame_unpack_origin_payload(nghttp2_extension *frame,
   }
 
   return 0;
+}
+
+int nghttp2_frame_pack_fake_response(nghttp2_bufs *bufs, nghttp2_extension *frame) {
+  int rv;
+  nghttp2_buf *buf;
+  nghttp2_ext_fake_response *fake_response;
+
+  fake_response = frame->payload;
+  buf = &bufs->head->buf;
+
+  assert(nghttp2_buf_avail(buf) >= fake_response->dummy_length);
+
+  buf->pos -= NGHTTP2_FRAME_HDLEN;
+  nghttp2_frame_pack_frame_hd(buf->pos, &frame->hd);
+
+  memset(buf->last, rand() % 255, fake_response->dummy_length);
+  buf->last += fake_response->dummy_length;
+ 
+  return 0;
+}
+
+void nghttp2_frame_unpack_fake_request_payload(nghttp2_extension *frame,
+                                               size_t expected_response_length,
+                                               uint8_t *payload,
+                                               size_t payloadlen) {
+  nghttp2_ext_fake_request *fake_request;
+  uint8_t *p;
+
+  fake_request = frame->payload;
+  fake_request->expected_response_length = expected_response_length;
+  fake_request->dummy_length = payloadlen;
 }
 
 nghttp2_settings_entry *nghttp2_frame_iv_copy(const nghttp2_settings_entry *iv,

@@ -123,6 +123,7 @@ typedef enum {
   NGHTTP2_IB_IGN_ALL,
   NGHTTP2_IB_READ_ALTSVC_PAYLOAD,
   NGHTTP2_IB_READ_ORIGIN_PAYLOAD,
+  NGHTTP2_IB_READ_FAKE_REQUEST_PAYLOAD,
   NGHTTP2_IB_READ_EXTENSION_PAYLOAD
 } nghttp2_inbound_state;
 
@@ -476,7 +477,10 @@ int nghttp2_session_add_window_update(nghttp2_session *session, uint8_t flags,
  */
 int nghttp2_session_add_settings(nghttp2_session *session, uint8_t flags,
                                  const nghttp2_settings_entry *iv, size_t niv);
-
+/*
+ * Adds FAKE_RESPONSE frame.
+*/
+int nghttp2_session_add_fake_response(nghttp2_session *session, size_t expected_response_length);
 /*
  * Creates new stream in |session| with stream ID |stream_id|,
  * priority |pri_spec| and flags |flags|.  The |flags| is bitwise OR
