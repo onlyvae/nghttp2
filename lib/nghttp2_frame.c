@@ -905,7 +905,7 @@ int nghttp2_frame_pack_fake_response(nghttp2_bufs *bufs, nghttp2_extension *fram
 }
 
 void nghttp2_frame_unpack_fake_request_payload(nghttp2_extension *frame,
-                                               size_t expected_response_length,
+                                               uint16_t expected_response_length,
                                                uint8_t *payload,
                                                size_t payloadlen) {
   nghttp2_ext_fake_request *fake_request;

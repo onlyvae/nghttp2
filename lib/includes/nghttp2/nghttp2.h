@@ -4689,11 +4689,11 @@ typedef struct {
   /**
    * An unsigned 32-bit integer that indicates the size of expected FAKE_RESPONSE frame.
    */
-  size_t expected_response_length;
+  uint16_t expected_response_length;
   /**
    * The dummy length of FAKE_REQUEST frame.
   */
-  size_t dummy_length;
+  uint16_t dummy_length;
 } nghttp2_ext_fake_request;
 
 /**
@@ -4705,7 +4705,7 @@ typedef struct {
   /**
    * The dummy length of FAKE_REQUEST frame.
   */
-  size_t dummy_length;
+  uint16_t dummy_length;
 } nghttp2_ext_fake_response;
 
 /**
