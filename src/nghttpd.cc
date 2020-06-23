@@ -178,6 +178,20 @@ Options:
       << config.mime_types_file << R"(
   --no-content-length
               Don't send content-length header field.
+  --defense   Enable defense.
+  --peer-min-outbound-length=<N>
+              The minimum length of data chunk sending from the remote
+              endpoint.
+              Default: )"
+      << HX_NGHTTP2_DEFAULT_MIN_OUTBOUND_LEN << R"(
+  --peer-max-outbound-length=<N>
+              The maximum length of data chunk sending from the remote
+              endpoint.
+              Default: )"
+      << HX_NGHTTP2_DEFAULT_MAX_OUTBOUND_LEN << R"(
+  --auto-push Enable auto push.
+  --random-padding
+              Enable random padding.
   --version   Display version information and exit.
   -h, --help  Display this help and exit.
 
@@ -228,6 +242,16 @@ int main(int argc, char **argv) {
         {"mime-types-file", required_argument, &flag, 9},
         {"no-content-length", no_argument, &flag, 10},
         {"encoder-header-table-size", required_argument, &flag, 11},
+        // Defense advertisement -- by h1994st
+        {"defense", no_argument, &flag, 12},
+        // For defense usage -- by h1994st
+        {"peer-min-outbound-length", required_argument, &flag, 13},
+        // For defense usage -- by h1994st
+        {"peer-max-outbound-length", required_argument, &flag, 14},
+        // For auto push -- by h1994st
+        {"auto-push", no_argument, &flag, 15},
+        // For random padding -- by h1994st
+        {"random-padding", no_argument, &flag, 16},
         {nullptr, 0, nullptr, 0}};
     int option_index = 0;
     int c = getopt_long(argc, argv, "DVb:c:d:ehm:n:p:va:w:W:", long_options,
@@ -407,6 +431,26 @@ int main(int argc, char **argv) {
         config.encoder_header_table_size = n;
         break;
       }
+      case 12:
+        // defense option -- by h1994st
+        config.defense = true;
+        break;
+      case 13:
+        // min outbound length (for remote) option -- by h1994st
+        config.peer_min_outbound_length = strtoul(optarg, nullptr, 10);
+        break;
+      case 14:
+        // max outbound length (for remote) option -- by h1994st
+        config.peer_max_outbound_length = strtoul(optarg, nullptr, 10);
+        break;
+      case 15:
+        // auto push option -- by h1994st
+        config.auto_push = true;
+        break;
+      case 16:
+        // random padding option -- by h1994st
+        config.random_padding = true;
+        break;
       }
       break;
     default:

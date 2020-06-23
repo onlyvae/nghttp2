@@ -57,7 +57,7 @@
 #include <openssl/dh.h>
 
 #include <zlib.h>
-#include <libxml/HTMLparser.h>
+#include "HtmlParser.h" // For auto server push -- by h1994st
 
 #include "app_helper.h"
 #include "http2.h"
@@ -110,7 +110,17 @@ Config::Config()
       early_response(false),
       hexdump(false),
       echo_upload(false),
-      no_content_length(false) {}
+      no_content_length(false),
+      // Defense advertisement -- by h1994st
+      defense(false),
+      // For defense usage -- by h1994st
+      peer_min_outbound_length(HX_NGHTTP2_DEFAULT_MIN_OUTBOUND_LEN),
+      // For defense usage -- by h1994st
+      peer_max_outbound_length(HX_NGHTTP2_DEFAULT_MAX_OUTBOUND_LEN),
+      // For auto push -- by h1994st
+      auto_push(false),
+      // For random padding -- by h1994st
+      random_padding(false) {}
 
 Config::~Config() {}
 
@@ -223,6 +233,12 @@ bool validate_file_entry(FileEntry *ent, ev_tstamp now) {
 
   return true;
 }
+} // namespace
+
+// For auto server push -- by h1994st
+namespace {
+void update_html_parser(Http2Handler *hd, Stream *stream, const uint8_t *data,
+                        size_t len, int fin);
 } // namespace
 
 class Sessions {
@@ -533,7 +549,8 @@ Http2Handler::Http2Handler(Sessions *sessions, int fd, SSL *ssl,
       ssl_(ssl),
       data_pending_(nullptr),
       data_pendinglen_(0),
-      fd_(fd) {
+      fd_(fd),
+      html_parser_(nullptr) { // For auto server push -- by h1994st
   ev_timer_init(&settings_timerev_, settings_timeout_cb, 10., 0.);
   ev_io_init(&wev_, writecb, fd, EV_WRITE);
   ev_io_init(&rev_, readcb, fd, EV_READ);
@@ -572,6 +589,7 @@ Http2Handler::~Http2Handler() {
   }
   shutdown(fd_, SHUT_WR);
   close(fd_);
+  delete html_parser_; // For auto server push -- by h1994st
 }
 
 void Http2Handler::remove_self() { sessions_->remove_handler(this); }
@@ -1076,6 +1094,23 @@ void Http2Handler::terminate_session(uint32_t error_code) {
   nghttp2_session_terminate_session(session_, error_code);
 }
 
+// For auto server push -- by h1994st
+HtmlParser *Http2Handler::get_html_parser() const { return html_parser_; }
+
+// For auto server push -- by h1994st
+void Http2Handler::init_html_parser(const std::string &base_uri) {
+  html_parser_ = new HtmlParser(base_uri);
+}
+
+// For auto server push -- by h1994st
+int Http2Handler::update_html_parser(const uint8_t *data, size_t len, int fin) {
+  if (!html_parser_) {
+    return 0;
+  }
+  return html_parser_->parse_chunk(reinterpret_cast<const char *>(data), len,
+                                   fin);
+}
+
 ssize_t file_read_callback(nghttp2_session *session, int32_t stream_id,
                            uint8_t *buf, size_t length, uint32_t *data_flags,
                            nghttp2_data_source *source, void *user_data) {
@@ -1214,39 +1249,6 @@ void prepare_redirect_response(Stream *stream, Http2Handler *hd,
                       headers, nullptr);
 }
 } // namespace
-
-// 遍历DOM节点，搜索script、link、image节点
-void traverse_dom_trees(xmlNodePtr a_node, std::vector<StringRef> &push) {
-  xmlNode *cur_node = NULL;
-  if (NULL == a_node)
-    return;
-  for (cur_node = a_node; cur_node; cur_node = cur_node->next) {
-    if (cur_node->type == XML_ELEMENT_NODE) {
-      /* script、link、image */
-      if (!xmlStrcmp(cur_node->name, (const xmlChar *)"script")) {
-        xmlChar *script_type = xmlGetProp(cur_node, (const xmlChar *)"type");
-        xmlChar *script_src = xmlGetProp(cur_node, (const xmlChar *)"src");
-        printf("%s\t%s\t%s\n", cur_node->name, script_type, script_src);
-        if(script_src)
-          push.push_back(StringRef{(char *)script_src});
-      }
-      if (!xmlStrcmp(cur_node->name, (const xmlChar *)"link")) {
-        xmlChar *link_rel = xmlGetProp(cur_node, (const xmlChar *)"rel");
-        xmlChar *link_href = xmlGetProp(cur_node, (const xmlChar *)"href");
-        printf("%s\t%s\t%s\n", cur_node->name, link_rel, link_href);
-        if(link_href)
-          push.push_back(StringRef{(char *)link_href}); 
-      }
-      if (!xmlStrcmp(cur_node->name, (const xmlChar *)"img")) {
-        xmlChar *img_src = xmlGetProp(cur_node, (const xmlChar *)"src");
-        printf("%s\t%s\n", cur_node->name, img_src);
-        if(img_src)
-          push.push_back(StringRef{(char *)img_src});
-      }
-    }
-    traverse_dom_trees(cur_node->children, push);
-  }
-}
 
 namespace {
 void prepare_response(Stream *stream, Http2Handler *hd,
@@ -1392,41 +1394,7 @@ void prepare_response(Stream *stream, Http2Handler *hd,
         file_path, FileEntry(file_path, buf.st_size, buf.st_mtime, file,
                              content_type, ev_now(sessions->get_loop())));
   }
-  /* push script、link、img in html */
-  auto ext = file_path.c_str() + file_path.size() - 1;
-  for (; file_path.c_str() < ext && *ext != '.' && *ext != '/'; --ext);
-  if (*ext == '.') {
-    ++ext;
-    if (!std::strcmp(ext, "html")) {
-      fprintf(stderr, file_path.c_str());
-      htmlDocPtr doc;
-      xmlNodePtr root;
-      doc = htmlParseFile(file_path.c_str(), NULL);
-      if (doc == NULL) {
-        fprintf(stderr, "Document not parsed successfully.\n");
-      } else {
-        root = xmlDocGetRootElement(doc);
-        if (root == NULL) {
-          fprintf(stderr, "Empty document\n");
-          xmlFreeDoc(doc);
-        } else {
-          std::vector<StringRef> push;
-          traverse_dom_trees(root, push);
-          xmlFreeDoc(doc);
-          xmlCleanupParser();
-          if (!push.empty()) {
-            for (auto &push_path : push) {
-              rv = hd->submit_push_promise(stream, StringRef{push_path});
-              if (rv != 0) {
-                std::cerr << "nghttp2_submit_push_promise() returned error: "
-                          << nghttp2_strerror(rv) << std::endl;
-              }
-            }
-          }
-        }
-      }
-    }
-  }
+  
   stream->file_ent = file_ent;
 
   if (last_mod_found && file_ent->mtime <= last_mod) {
@@ -1445,6 +1413,46 @@ void prepare_response(Stream *stream, Http2Handler *hd,
 
   stream->body_length = file_ent->length;
 
+  /* random push script、link、img in html */
+  auto file_ext = file_path.c_str() + file_path.size() - 1;
+  for (; file_path.c_str() < file_ext && *file_ext != '.' && *file_ext != '/'; --file_ext);
+  if (*file_ext == '.') {
+    ++file_ext;
+    // For auto server push -- by h1994st
+    if (allow_push && hd->get_config()->auto_push && file_ext &&
+        ((file_ent->content_type &&
+          *file_ent->content_type == StringRef::from_lit("text/html")) ||
+         file_ext == StringRef::from_lit("html") ||
+         file_ext == StringRef::from_lit("htm"))) {
+      int offset = 0;
+      auto length = file_ent->length;
+      std::array<uint8_t, 8_k> buf;
+
+      std::cerr << "[h1994st] auto push enabled" << std::endl;
+
+      while (length) {
+        ssize_t nread;
+        while ((nread = pread(file_ent->fd, buf.data(), buf.size(), offset)) ==
+                   -1 &&
+               errno == EINTR)
+          ;
+
+        if (nread == -1) {
+          break;
+        }
+
+        offset += nread;
+        length -= nread;
+
+        if (length) {
+          update_html_parser(hd, stream, buf.data(), nread, 0);
+        } else {
+          update_html_parser(hd, stream, buf.data(), nread, 1);
+        }
+      }
+    }
+  }
+
   nghttp2_data_provider data_prd;
 
   data_prd.source.fd = file_ent->fd;
@@ -1452,6 +1460,59 @@ void prepare_response(Stream *stream, Http2Handler *hd,
 
   hd->submit_file_response(StringRef::from_lit("200"), stream, file_ent->mtime,
                            file_ent->length, file_ent->content_type, &data_prd);
+}
+} // namespace
+
+// For auto server push -- by h1994st
+namespace {
+std::string strip_fragment(const char *raw_uri) {
+  const char *end;
+  for (end = raw_uri; *end && *end != '#'; ++end)
+    ;
+  size_t len = end - raw_uri;
+  return std::string(raw_uri, len);
+}
+} // namespace
+
+// For auto server push -- by h1994st
+namespace {
+unsigned seed = std::chrono::system_clock::now().time_since_epoch().count();
+std::default_random_engine generator(seed);
+std::bernoulli_distribution distribution(0.5);
+void update_html_parser(Http2Handler *hd, Stream *stream, const uint8_t *data,
+                        size_t len, int fin) {
+  if (!hd->get_html_parser()) {
+    return;
+  }
+  hd->update_html_parser(data, len, fin);
+
+  auto html_parser = hd->get_html_parser();
+
+  for (auto &p : html_parser->get_links()) {
+    auto uri = strip_fragment(p.first.c_str());
+    auto res_type = p.second;
+    auto should_push = distribution(generator);
+
+    std::cerr << "[h1994st] parsed link: " << uri << "(" << res_type << ")"
+              << std::endl;
+
+    if (hd->get_config()->defense && !should_push) {
+      std::cerr << "[h1994st] skip this link" << std::endl;
+      return;
+    }
+
+    http_parser_url u{};
+    if (http_parser_parse_url(uri.c_str(), uri.size(), 0, &u) == 0) {
+      // Submit PUSH_PROMISE frame
+      auto push_path = make_string_ref(
+          stream->balloc, util::get_uri_field(uri.c_str(), u, UF_PATH));
+
+      std::cerr << "[h1994st] push " << uri << ": " << res_type << std::endl;
+
+      hd->submit_push_promise(stream, push_path);
+    }
+  }
+  html_parser->clear_links();
 }
 } // namespace
 
@@ -1592,6 +1653,12 @@ int hd_on_frame_recv_callback(nghttp2_session *session,
         hd->submit_non_final_response("100", frame->hd.stream_id);
       }
 
+      // For auto server push -- by h1994st
+      if (!hd->get_html_parser()) {
+        hd->init_html_parser(stream->header.scheme.str() + "://" +
+                             stream->header.authority.str());
+      }
+      
       auto method = stream->header.method;
       if (hd->get_config()->echo_upload &&
           (method == StringRef::from_lit("POST") ||

@@ -47,6 +47,7 @@
 #include "buffer.h"
 #include "template.h"
 #include "allocator.h"
+#include "url-parser/url_parser.h"
 
 namespace nghttp2 {
 
@@ -82,6 +83,11 @@ struct Config {
   bool hexdump;
   bool echo_upload;
   bool no_content_length;
+  bool defense;                    // Defense advertisement -- by h1994st
+  size_t peer_min_outbound_length; // For defense usage -- by h1994st
+  size_t peer_max_outbound_length; // For defense usage -- by h1994st
+  bool auto_push;                  // For auto push -- by h1994st
+  bool random_padding;             // For random padding - by h1994st
   Config();
   ~Config();
 };
@@ -153,6 +159,7 @@ struct Stream {
 };
 
 class Sessions;
+class HtmlParser; // For auto server push -- by h1994st
 
 class Http2Handler {
 public:
@@ -207,6 +214,11 @@ public:
 
   WriteBuf *get_wb();
 
+  // For auto server push -- by h1994st
+  HtmlParser *get_html_parser() const;
+  void init_html_parser(const std::string &base_uri);
+  int update_html_parser(const uint8_t *data, size_t len, int fin);
+
 private:
   ev_io wev_;
   ev_io rev_;
@@ -221,6 +233,7 @@ private:
   const uint8_t *data_pending_;
   size_t data_pendinglen_;
   int fd_;
+  HtmlParser *html_parser_; // For auto server push -- by h1994st
 };
 
 struct StatusPage {

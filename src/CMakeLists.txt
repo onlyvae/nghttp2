@@ -57,6 +57,10 @@ if(ENABLE_APP)
     tls.cc
     HttpServer.cc
   )
+  
+  if(HAVE_LIBXML2)
+    list(APPEND NGHTTPD_SOURCES HtmlParser.cc)
+  endif()
 
   # h2load
   set(H2LOAD_SOURCES
