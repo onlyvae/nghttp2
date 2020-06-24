@@ -253,9 +253,11 @@ void nghttp2_frame_origin_free(nghttp2_extension *frame, nghttp2_mem *mem) {
   nghttp2_mem_free(mem, origin->ov);
 }
 
-void nghttp2_frame_fake_response_init(nghttp2_extension *frame, size_t expected_response_length) {
+void nghttp2_frame_fake_response_init(nghttp2_extension *frame,
+                                      int32_t stream_id,
+                                      uint16_t expected_response_length) {
   nghttp2_ext_fake_response *fake_response;
-  nghttp2_frame_hd_init(&frame->hd, expected_response_length, NGHTTP2_FAKE_RESPONSE, NGHTTP2_FLAG_NONE, 0);
+  nghttp2_frame_hd_init(&frame->hd, expected_response_length, NGHTTP2_FAKE_RESPONSE, NGHTTP2_FLAG_END_STREAM, stream_id);
   fake_response = frame->payload;
   fake_response->dummy_length = expected_response_length;
 }
@@ -886,7 +888,6 @@ int nghttp2_frame_unpack_origin_payload(nghttp2_extension *frame,
 }
 
 int nghttp2_frame_pack_fake_response(nghttp2_bufs *bufs, nghttp2_extension *frame) {
-  int rv;
   nghttp2_buf *buf;
   nghttp2_ext_fake_response *fake_response;
 
@@ -905,15 +906,17 @@ int nghttp2_frame_pack_fake_response(nghttp2_bufs *bufs, nghttp2_extension *fram
 }
 
 void nghttp2_frame_unpack_fake_request_payload(nghttp2_extension *frame,
-                                               uint16_t expected_response_length,
-                                               uint8_t *payload,
-                                               size_t payloadlen) {
-  nghttp2_ext_fake_request *fake_request;
-  uint8_t *p;
+                                               uint8_t *payload) {
+  nghttp2_ext_fake_request *fake_request = frame->payload;
+  uint8_t *p = payload;
 
-  fake_request = frame->payload;
-  fake_request->expected_response_length = expected_response_length;
-  fake_request->dummy_length = payloadlen;
+  /* Unpack priority. */
+  nghttp2_frame_unpack_priority_spec(&fake_request->pri_spec, payload);
+  p += nghttp2_frame_priority_len(frame->hd.flags);
+
+  /* Unpack expected length field. */
+  fake_request->expected_response_length = nghttp2_get_uint16(p);
+  fake_request->dummy_length = 0; /* This length is unimportant */
 }
 
 nghttp2_settings_entry *nghttp2_frame_iv_copy(const nghttp2_settings_entry *iv,

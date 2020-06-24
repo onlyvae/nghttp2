@@ -62,7 +62,8 @@ typedef enum {
 typedef enum {
   NGHTTP2_TYPEMASK_NONE = 0,
   NGHTTP2_TYPEMASK_ALTSVC = 1 << 0,
-  NGHTTP2_TYPEMASK_ORIGIN = 1 << 1
+  NGHTTP2_TYPEMASK_ORIGIN = 1 << 1,
+  NGHTTP2_TYPEMASK_FAKE_REQUEST = 1 << 2
 } nghttp2_typemask;
 
 typedef enum {
@@ -123,7 +124,6 @@ typedef enum {
   NGHTTP2_IB_IGN_ALL,
   NGHTTP2_IB_READ_ALTSVC_PAYLOAD,
   NGHTTP2_IB_READ_ORIGIN_PAYLOAD,
-  NGHTTP2_IB_READ_FAKE_REQUEST_PAYLOAD,
   NGHTTP2_IB_READ_EXTENSION_PAYLOAD
 } nghttp2_inbound_state;
 
@@ -480,7 +480,7 @@ int nghttp2_session_add_settings(nghttp2_session *session, uint8_t flags,
 /*
  * Adds FAKE_RESPONSE frame.
 */
-int nghttp2_session_add_fake_response(nghttp2_session *session, size_t expected_response_length);
+int nghttp2_session_add_fake_response(nghttp2_session *session, int32_t stream_id, uint16_t expected_response_length);
 /*
  * Creates new stream in |session| with stream ID |stream_id|,
  * priority |pri_spec| and flags |flags|.  The |flags| is bitwise OR
@@ -777,6 +777,11 @@ int nghttp2_session_on_altsvc_received(nghttp2_session *session,
 int nghttp2_session_on_origin_received(nghttp2_session *session,
                                        nghttp2_frame *frame);
 
+/*
+ * Called when FAKE_REQUEST is received.
+ */
+int nghttp2_session_on_fake_request_received(nghttp2_session *session,
+                                       nghttp2_frame *frame);
 /*
  * Called when DATA is received, assuming |frame| is properly
  * initialized.

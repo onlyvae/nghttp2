@@ -354,6 +354,12 @@ static void session_inbound_frame_reset(nghttp2_session *session) {
         }
         nghttp2_frame_origin_free(&iframe->frame.ext, mem);
         break;
+      case NGHTTP2_FAKE_REQUEST:
+        if ((session->builtin_recv_ext_types & NGHTTP2_TYPEMASK_FAKE_REQUEST) == 0) {
+          break;
+        }
+        nghttp2_frame_fake_response_free(&iframe->frame.ext);
+        break;
       }
     }
 
@@ -555,6 +561,7 @@ static int session_new(nghttp2_session **session_ptr,
   rv = nghttp2_bufs_init3(&(*session_ptr)->aob.framebufs,
                           NGHTTP2_FRAMEBUF_CHUNKLEN, nbuffer, 1,
                           NGHTTP2_FRAME_HDLEN + 1, mem);
+  // rv = hx_nghttp2_bufs_init(&(*session_ptr)->aob.framebufs, 1, NGHTTP2_FRAME_HDLEN + 1, mem);
   if (rv != 0) {
     goto fail_aob_framebuf;
   }
@@ -4903,12 +4910,75 @@ int nghttp2_session_on_origin_received(nghttp2_session *session,
 int nghttp2_session_on_fake_request_received(nghttp2_session *session,
                                        nghttp2_frame *frame) {
   int rv = 0;
+  nghttp2_stream *stream;
   nghttp2_ext_fake_request *fake_request = frame->ext.payload;
 
+  assert(session->server);
+
+  if (!session_is_new_peer_stream_id(session, frame->hd.stream_id)) {
+    if (frame->hd.stream_id == 0 ||
+        nghttp2_session_is_my_stream_id(session, frame->hd.stream_id)) {
+      return session_handle_invalid_connection(
+          session, frame, NGHTTP2_ERR_PROTO,
+          "FAKE_REQUEST: invalid stream_id");
+    }
+
+    stream = nghttp2_session_get_stream_raw(session, frame->hd.stream_id);
+    if (stream && (stream->shut_flags & NGHTTP2_SHUT_RD)) {
+      return session_handle_invalid_connection(session, frame,
+                                               NGHTTP2_ERR_STREAM_CLOSED,
+                                               "FAKE_REQUEST: stream closed");
+    }
+
+    return NGHTTP2_ERR_IGN_PAYLOAD;
+  }
+  session->last_recv_stream_id = frame->hd.stream_id;
+
+  if (session_is_incoming_concurrent_streams_max(session))
+    return session_handle_invalid_connection(
+        session, frame, NGHTTP2_ERR_PROTO,
+        "FAKE_REQUEST: max concurrent streams exceeded");
+
+  if (!session_allow_incoming_new_stream(session)) 
+    return NGHTTP2_ERR_IGN_PAYLOAD;
+
+  if (fake_request->pri_spec.stream_id == frame->hd.stream_id)
+    return session_handle_invalid_connection(session, frame, NGHTTP2_ERR_PROTO,
+                                             "FAKE_REQUEST: depend on itself");
+
+  if (session_is_incoming_concurrent_streams_pending_max(session))
+    return session_handle_invalid_stream(session, frame,
+                                         NGHTTP2_ERR_REFUSED_STREAM);
+
+  stream = nghttp2_session_open_stream(
+      session, frame->hd.stream_id, NGHTTP2_STREAM_FLAG_NONE,
+      &fake_request->pri_spec, NGHTTP2_STREAM_OPENING, NULL);
+  if (!stream) {
+    return NGHTTP2_ERR_NOMEM;
+  }
+
+  rv = nghttp2_session_adjust_closed_stream(session);
+  if (nghttp2_is_fatal(rv)) {
+    return rv;
+  }
+
+  session->last_proc_stream_id = session->last_recv_stream_id;
+
+  assert(stream->state == NGHTTP2_STREAM_OPENING);
   if (fake_request->expected_response_length && !session_is_closing(session)) {
     /* Send fake_response */
-    rv = nghttp2_session_add_fake_response(session, fake_request->expected_response_length);
+    rv = nghttp2_session_add_fake_response(
+        session, frame->hd.stream_id, fake_request->expected_response_length);
     if (rv != 0) {
+      return rv;
+    }
+  }
+  /* Check FAKE_REQUEST END_STREAM */
+  if (frame->hd.flags & NGHTTP2_FLAG_END_STREAM) {
+    /* Close stream. */
+    nghttp2_stream_shutdown(stream, NGHTTP2_SHUT_RD);
+    rv = nghttp2_session_close_stream_if_shut_rdwr(session, stream);
+    if (nghttp2_is_fatal(rv)) {
       return rv;
     }
   }
@@ -4954,10 +5024,7 @@ static int session_process_fake_request_frame(nghttp2_session *session) {
   nghttp2_frame *frame = &iframe->frame;
 
   nghttp2_frame_unpack_fake_request_payload(
-      &frame->ext, nghttp2_get_uint16(iframe->sbuf.pos), iframe->lbuf.pos,
-      nghttp2_buf_len(&iframe->lbuf));
-
-  nghttp2_buf_wrap_init(&iframe->lbuf, NULL, 0);
+      &frame->ext, iframe->sbuf.pos);
 
   return nghttp2_session_on_fake_request_received(session, frame);
 }
@@ -5906,7 +5973,9 @@ ssize_t nghttp2_session_mem_recv(nghttp2_session *session, const uint8_t *in,
           case NGHTTP2_FAKE_REQUEST:
             DEBUGF("recv: FAKE_REQUEST\n");
 
-            iframe->frame.hd.flags = NGHTTP2_FLAG_NONE;
+            iframe->frame.hd.flags &=
+                (NGHTTP2_FLAG_END_STREAM | NGHTTP2_FLAG_PRIORITY |
+                 NGHTTP2_FLAG_END_FAKE_REQUEST);
             iframe->frame.ext.payload = &iframe->ext_frame_payload.fake_request;
 
             if (!session->server) {
@@ -5915,17 +5984,27 @@ ssize_t nghttp2_session_mem_recv(nghttp2_session *session, const uint8_t *in,
               break;
             }
 
-            if (iframe->payloadleft < 2) {
+            if (iframe->frame.hd.flags & NGHTTP2_FLAG_END_FAKE_REQUEST) {
+              /* Priority */
+              pri_fieldlen = nghttp2_frame_priority_len(iframe->frame.hd.flags);
+
+              /* Expected length */
+              if (iframe->payloadleft < 2 + pri_fieldlen) {
+                busy = 1;
+                iframe->state = NGHTTP2_IB_FRAME_SIZE_ERROR;
+                break;
+              }
+
               busy = 1;
-              iframe->state = NGHTTP2_IB_FRAME_SIZE_ERROR;
+
+              iframe->state = NGHTTP2_IB_READ_NBYTE;
+              inbound_frame_set_mark(iframe, 2 + pri_fieldlen);
+
               break;
             }
 
             busy = 1;
-
-            iframe->state = NGHTTP2_IB_READ_NBYTE;
-            inbound_frame_set_mark(iframe, 2);
-
+            iframe->state = NGHTTP2_IB_IGN_PAYLOAD;
             break;
           default:
             busy = 1;
@@ -6197,28 +6276,24 @@ ssize_t nghttp2_session_mem_recv(nghttp2_session *session, const uint8_t *in,
         break;
       }
       case NGHTTP2_FAKE_REQUEST: {
-        // size_t expected_response_length;
+        size_t expected_response_length;
+        size_t dummy_length;
 
-        // expected_response_length = nghttp2_get_uint16(iframe->sbuf.pos);
+        expected_response_length = nghttp2_get_uint16(iframe->sbuf.pos + 5);
+        DEBUGF("recv: expected_response_length=%zu\n", expected_response_length);
 
-        // DEBUGF("recv: expected_response_length=%zu\n", expected_response_length);
+        dummy_length = iframe->frame.hd.length - nghttp2_frame_priority_len(iframe->frame.hd.flags) - 2;
+        assert(dummy_length == iframe->payloadleft);
+        in += dummy_length;
+        iframe->payloadleft -= dummy_length;
+        DEBUGF("recv: skip dummy=%zu, payloadleft=%zu,\n", dummy_length,
+               iframe->payloadleft);
 
-        if (iframe->frame.hd.length > 2) {
-          iframe->raw_lbuf =
-              nghttp2_mem_malloc(mem, iframe->frame.hd.length - 2);
-
-          if (iframe->raw_lbuf == NULL) {
-            return NGHTTP2_ERR_NOMEM;
-          }
-
-          nghttp2_buf_wrap_init(&iframe->lbuf, iframe->raw_lbuf,
-                                iframe->frame.hd.length);
+        rv = session_process_fake_request_frame(session);
+        if (nghttp2_is_fatal(rv)) {
+          return rv;
         }
-
-        busy = 1;
-
-        iframe->state = NGHTTP2_IB_READ_FAKE_REQUEST_PAYLOAD;
-
+        session_inbound_frame_reset(session);
         break;
       }
       default:
@@ -6848,34 +6923,6 @@ ssize_t nghttp2_session_mem_recv(nghttp2_session *session, const uint8_t *in,
       session_inbound_frame_reset(session);
 
       break;
-    case NGHTTP2_IB_READ_FAKE_REQUEST_PAYLOAD:
-      DEBUGF("recv: [IB_READ_FAKE_REQUEST_PAYLOAD]\n");
-
-      readlen = inbound_frame_payload_readlen(iframe, in, last);
-      if (readlen > 0) {
-        iframe->lbuf.last = nghttp2_cpymem(iframe->lbuf.last, in, readlen);
-
-        iframe->payloadleft -= readlen;
-        in += readlen;
-      }
-
-      DEBUGF("recv: readlen=%zu, payloadleft=%zu\n", readlen,
-             iframe->payloadleft);
-
-      if (iframe->payloadleft) {
-        assert(nghttp2_buf_avail(&iframe->lbuf) > 0);
-
-        break;
-      }
-
-      rv = session_process_fake_request_frame(session);
-      if (nghttp2_is_fatal(rv)) {
-        return rv;
-      }
-
-      session_inbound_frame_reset(session);
-
-      break;
     }
 
     if (!busy && in == last) {
@@ -7206,12 +7253,19 @@ int nghttp2_session_add_settings(nghttp2_session *session, uint8_t flags,
   return 0;
 }
 
-int nghttp2_session_add_fake_response(nghttp2_session *session, size_t expected_response_length) {
+int nghttp2_session_add_fake_response(nghttp2_session *session,
+                                      int32_t stream_id,
+                                      uint16_t expected_response_length) {
   int rv;
   nghttp2_outbound_item *item;
   nghttp2_frame *frame;
   nghttp2_mem *mem;
   nghttp2_ext_fake_response *fake_response;
+  
+  /* Check client or server session. */
+  if (!session->server) {
+    return NGHTTP2_ERR_PROTO;
+  }
 
   mem = &session->mem;
   item = nghttp2_mem_malloc(mem, sizeof(nghttp2_outbound_item));
@@ -7224,7 +7278,7 @@ int nghttp2_session_add_fake_response(nghttp2_session *session, size_t expected_
   frame = &item->frame;
   frame->ext.payload = fake_response;
 
-  nghttp2_frame_fake_response_init(&frame->ext, expected_response_length);
+  nghttp2_frame_fake_response_init(&frame->ext, stream_id, expected_response_length);
 
   rv = nghttp2_session_add_item(session, item);
 

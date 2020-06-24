@@ -216,6 +216,26 @@ typedef struct {
 /**
  * @macro
  *
+ * The default minimum length of data chunk from remote endpoints.
+ * (>= 9 * NGHTTP2_FRAME_SETTINGS_ENTRY_LENGTH, and 9 includes all
+ * extended setting entries)
+ *
+ * -- by h1994st
+ */
+#define HX_NGHTTP2_DEFAULT_MIN_OUTBOUND_LEN 54
+
+/**
+ * @macro
+ *
+ * The default maximum length of data chunk from remote endpoints.
+ *
+ * -- by h1994st
+ */
+#define HX_NGHTTP2_DEFAULT_MAX_OUTBOUND_LEN 16384
+
+/**
+ * @macro
+ *
  * The client magic string, which is the first 24 bytes byte string of
  * client connection preface.
  */
@@ -635,8 +655,29 @@ typedef enum {
    * <https://tools.ietf.org/html/rfc8336>`_.
    */
   NGHTTP2_ORIGIN = 0x0c,
-  NGHTTP2_FAKE_REQUEST = 0x0d,
-  NGHTTP2_FAKE_RESPONSE = 0x0e
+  /**
+   * Towards defending website fingerprinting attack, we (Shengtuo Hu
+   * , et al.) add these new frames (with prefix ``HX``).
+   * -- by h1994st
+   */
+  /**
+   * The DUMMY frame. This frame type will be ignore and discard as
+   * any unknown frame types.
+   * -- by h1994st
+   */
+  NGHTTP2_DUMMY = 0x0d,
+  /**
+   * The DECOY_REQUEST frame. This frame type is always sent out by
+   * the client endpoint.
+   * -- by h1994st
+   */
+  NGHTTP2_FAKE_REQUEST = 0x0e,
+  /**
+   * The DECOY_RESPONSE frame. This frame type is always sent out by
+   * the server endpoint.
+   * -- by h1994st
+   */
+  NGHTTP2_FAKE_RESPONSE = 0x0f,
 } nghttp2_frame_type;
 
 /**
@@ -669,7 +710,11 @@ typedef enum {
   /**
    * The PRIORITY flag.
    */
-  NGHTTP2_FLAG_PRIORITY = 0x20
+  NGHTTP2_FLAG_PRIORITY = 0x20,
+  /**
+   * The END_FAKE_REQUEST flag.
+   */
+  NGHTTP2_FLAG_END_FAKE_REQUEST = 0x04
 } nghttp2_flag;
 
 /**
@@ -4686,6 +4731,10 @@ NGHTTP2_EXTERN int nghttp2_submit_origin(nghttp2_session *session,
  * The payload of FAKE_REQUEST frame.
  */
 typedef struct {
+  /**
+   * The priority specification.
+   */
+  nghttp2_priority_spec pri_spec;
   /**
    * An unsigned 32-bit integer that indicates the size of expected FAKE_RESPONSE frame.
    */

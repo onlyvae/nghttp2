@@ -52,6 +52,12 @@
 #define NGHTTP2_FRAMEBUF_CHUNKLEN                                              \
   (NGHTTP2_FRAME_HDLEN + 1 + NGHTTP2_MAX_PAYLOADLEN)
 
+/* Buffer chunk length range, for randomized buffer only. -- by h1994st */
+#define HX_NGHTTP2_FRAMEBUF_MIN_CHUNKLEN                                       \
+  (NGHTTP2_FRAME_HDLEN + 1 + HX_NGHTTP2_DEFAULT_MIN_OUTBOUND_LEN)
+#define HX_NGHTTP2_FRAMEBUF_MAX_CHUNKLEN                                       \
+  (NGHTTP2_FRAME_HDLEN + 1 + HX_NGHTTP2_DEFAULT_MAX_OUTBOUND_LEN)
+
 /* The default length of DATA frame payload. */
 #define NGHTTP2_DATA_PAYLOADLEN NGHTTP2_MAX_FRAME_SIZE_MIN
 
@@ -435,9 +441,7 @@ int nghttp2_frame_pack_fake_response(nghttp2_bufs *bufs, nghttp2_extension *fram
  * Unpacks FAKE_REQUEST wire format into |frame|.
  */
 void nghttp2_frame_unpack_fake_request_payload(nghttp2_extension *frame,
-                                               uint16_t expected_response_length,
-                                               uint8_t *payload,
-                                               size_t payloadlen);
+                                               uint8_t *payload);
 /*
  * Initializes HEADERS frame |frame| with given values.  |frame| takes
  * ownership of |nva|, so caller must not free it. If |stream_id| is
@@ -556,8 +560,9 @@ void nghttp2_frame_origin_free(nghttp2_extension *frame, nghttp2_mem *mem);
 /**
  * Initializes FAKE_RESPONSE frame.
  */
-void nghttp2_frame_fake_response_init(nghttp2_extension *frame, size_t expected_response_length);
+void nghttp2_frame_fake_response_init(nghttp2_extension *frame, int32_t stream_id, uint16_t expected_response_length);
 void nghttp2_frame_fake_response_free(nghttp2_extension *frame);
+
 /*
  * Returns the number of padding bytes after payload.  The total
  * padding length is given in the |padlen|.  The returned value does
