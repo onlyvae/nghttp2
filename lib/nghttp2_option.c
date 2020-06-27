@@ -90,6 +90,18 @@ void nghttp2_option_set_builtin_recv_extension_type(nghttp2_option *option,
     option->opt_set_mask |= NGHTTP2_OPT_BUILTIN_RECV_EXT_TYPES;
     option->builtin_recv_ext_types |= NGHTTP2_TYPEMASK_ORIGIN;
     return;
+  case NGHTTP2_DUMMY:
+    option->opt_set_mask |= NGHTTP2_OPT_BUILTIN_RECV_EXT_TYPES;
+    option->builtin_recv_ext_types |= NGHTTP2_TYPEMASK_DUMMY;
+    return;
+  case NGHTTP2_FAKE_REQUEST:
+    option->opt_set_mask |= NGHTTP2_OPT_BUILTIN_RECV_EXT_TYPES;
+    option->builtin_recv_ext_types |= NGHTTP2_TYPEMASK_FAKE_REQUEST;
+    return;
+  case NGHTTP2_FAKE_RESPONSE:
+    option->opt_set_mask |= NGHTTP2_OPT_BUILTIN_RECV_EXT_TYPES;
+    option->builtin_recv_ext_types |= NGHTTP2_TYPEMASK_FAKE_RESPONSE;
+    return;
   default:
     return;
   }
@@ -125,4 +137,8 @@ void nghttp2_option_set_max_outbound_ack(nghttp2_option *option, size_t val) {
 void nghttp2_option_set_max_settings(nghttp2_option *option, size_t val) {
   option->opt_set_mask |= NGHTTP2_OPT_MAX_SETTINGS;
   option->max_settings = val;
+}
+void nghttp2_option_set_wfp_defense(nghttp2_option *option, int val) {
+  option->opt_set_mask |= NGHTTP2_OPT_WFP_DEFENSE;
+  option->wfp_defense = val;
 }

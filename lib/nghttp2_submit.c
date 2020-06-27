@@ -822,3 +822,15 @@ int nghttp2_submit_extension(nghttp2_session *session, uint8_t type,
 
   return 0;
 }
+
+int nghttp2_submit_fake_request(nghttp2_session *session, uint8_t flags,
+                                int32_t stream_id,
+                                const nghttp2_priority_spec *pri_spec,
+                                uint16_t expected_len, uint16_t dummy_len) {
+  return nghttp2_session_add_fake_request(session, flags, stream_id, pri_spec,
+                                            expected_len, dummy_len);
+}
+
+int nghttp2_submit_dummy(nghttp2_session *session, uint16_t dummy_len) {
+  return nghttp2_session_add_dummy(session, dummy_len);
+}

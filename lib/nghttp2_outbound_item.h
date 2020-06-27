@@ -92,6 +92,9 @@ typedef struct {
   /* nonzero if this extension frame is serialized by library
      function, instead of user-defined callbacks. */
   uint8_t builtin;
+
+  uint8_t fake_response_eof;
+  uint16_t fake_response_payload_len;
 } nghttp2_ext_aux_data;
 
 /* Additional data which cannot be stored in nghttp2_frame struct */

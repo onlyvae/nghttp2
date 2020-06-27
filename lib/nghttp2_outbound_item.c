@@ -89,8 +89,14 @@ void nghttp2_outbound_item_free(nghttp2_outbound_item *item, nghttp2_mem *mem) {
     case NGHTTP2_ORIGIN:
       nghttp2_frame_origin_free(&frame->ext, mem);
       break;
+    case NGHTTP2_FAKE_REQUEST:
+      nghttp2_frame_fake_request_free(&frame->ext);
+      break;
     case NGHTTP2_FAKE_RESPONSE:
       nghttp2_frame_fake_response_free(&frame->ext);
+      break;
+    case NGHTTP2_DUMMY:
+      nghttp2_frame_dummy_free(&frame->ext);
       break;
     default:
       assert(0);

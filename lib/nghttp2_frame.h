@@ -53,10 +53,10 @@
   (NGHTTP2_FRAME_HDLEN + 1 + NGHTTP2_MAX_PAYLOADLEN)
 
 /* Buffer chunk length range, for randomized buffer only. -- by h1994st */
-#define HX_NGHTTP2_FRAMEBUF_MIN_CHUNKLEN                                       \
-  (NGHTTP2_FRAME_HDLEN + 1 + HX_NGHTTP2_DEFAULT_MIN_OUTBOUND_LEN)
-#define HX_NGHTTP2_FRAMEBUF_MAX_CHUNKLEN                                       \
-  (NGHTTP2_FRAME_HDLEN + 1 + HX_NGHTTP2_DEFAULT_MAX_OUTBOUND_LEN)
+#define NGHTTP2_FRAMEBUF_MIN_CHUNKLEN                                       \
+  (NGHTTP2_FRAME_HDLEN + 1 + NGHTTP2_DEFAULT_MIN_OUTBOUND_LEN)
+#define NGHTTP2_FRAMEBUF_MAX_CHUNKLEN                                       \
+  (NGHTTP2_FRAME_HDLEN + 1 + NGHTTP2_DEFAULT_MAX_OUTBOUND_LEN)
 
 /* The default length of DATA frame payload. */
 #define NGHTTP2_DATA_PAYLOADLEN NGHTTP2_MAX_FRAME_SIZE_MIN
@@ -79,6 +79,7 @@
 typedef union {
   nghttp2_ext_altsvc altsvc;
   nghttp2_ext_origin origin;
+  nghttp2_ext_dummy dummy;
   nghttp2_ext_fake_request fake_request;
   nghttp2_ext_fake_response fake_response;
 } nghttp2_ext_frame_payload;
@@ -433,9 +434,18 @@ int nghttp2_frame_unpack_origin_payload(nghttp2_extension *frame,
                                         size_t payloadlen, nghttp2_mem *mem);
 
 /**
+ * Packs FAKE_REQUEST frame.
+ */
+int nghttp2_frame_pack_fake_request(nghttp2_bufs *bufs, nghttp2_extension *frame);
+/**
  * Packs FAKE_RESPONSE frame.
  */
 int nghttp2_frame_pack_fake_response(nghttp2_bufs *bufs, nghttp2_extension *frame);
+
+/**
+ * Packs dummy frame.
+ */
+int nghttp2_frame_pack_dummy(nghttp2_bufs *bufs, nghttp2_extension *frame);
 
 /**
  * Unpacks FAKE_REQUEST wire format into |frame|.
@@ -560,9 +570,24 @@ void nghttp2_frame_origin_free(nghttp2_extension *frame, nghttp2_mem *mem);
 /**
  * Initializes FAKE_RESPONSE frame.
  */
+void nghttp2_frame_fake_request_init(nghttp2_extension *frame, uint8_t flags,
+                                     int32_t stream_id,
+                                     const nghttp2_priority_spec *pri_spec,
+                                     uint16_t expected_response_length,
+                                     uint16_t dummy_length);
+void nghttp2_frame_fake_request_free(nghttp2_extension *frame);
+
+/**
+ * Initializes FAKE_RESPONSE frame.
+ */
 void nghttp2_frame_fake_response_init(nghttp2_extension *frame, int32_t stream_id, uint16_t expected_response_length);
 void nghttp2_frame_fake_response_free(nghttp2_extension *frame);
 
+/**
+ * Initializes DUMMY frame.
+ */
+void nghttp2_frame_dummy_init(nghttp2_extension *frame, uint16_t expected_response_length);
+void nghttp2_frame_dummy_free(nghttp2_extension *frame);
 /*
  * Returns the number of padding bytes after payload.  The total
  * padding length is given in the |padlen|.  The returned value does

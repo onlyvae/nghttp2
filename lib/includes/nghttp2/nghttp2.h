@@ -222,7 +222,7 @@ typedef struct {
  *
  * -- by h1994st
  */
-#define HX_NGHTTP2_DEFAULT_MIN_OUTBOUND_LEN 54
+#define NGHTTP2_DEFAULT_MIN_OUTBOUND_LEN 54
 
 /**
  * @macro
@@ -231,7 +231,7 @@ typedef struct {
  *
  * -- by h1994st
  */
-#define HX_NGHTTP2_DEFAULT_MAX_OUTBOUND_LEN 16384
+#define NGHTTP2_DEFAULT_MAX_OUTBOUND_LEN 16384
 
 /**
  * @macro
@@ -655,11 +655,6 @@ typedef enum {
    * <https://tools.ietf.org/html/rfc8336>`_.
    */
   NGHTTP2_ORIGIN = 0x0c,
-  /**
-   * Towards defending website fingerprinting attack, we (Shengtuo Hu
-   * , et al.) add these new frames (with prefix ``HX``).
-   * -- by h1994st
-   */
   /**
    * The DUMMY frame. This frame type will be ignore and discard as
    * any unknown frame types.
@@ -2728,7 +2723,19 @@ NGHTTP2_EXTERN void nghttp2_option_set_max_outbound_ack(nghttp2_option *option,
  */
 NGHTTP2_EXTERN void nghttp2_option_set_max_settings(nghttp2_option *option,
                                                     size_t val);
-
+/**
+ * @function
+ *
+ * This option enables the library to defense website fingerprinting
+ * attack.  If |val| isnghttp2_option_set_wfp_defense set to nonzero, the library will allocate the
+ * buffer randomly so that the size of the outbound frame is not
+ * fixed.  Besides, this also enables decoy page, dummy frame
+ * injection and delay frame.
+ *
+ * -- by h1994st
+ */
+NGHTTP2_EXTERN void nghttp2_option_set_wfp_defense(nghttp2_option *option,
+                                                      int val);
 /**
  * @function
  *
@@ -4746,16 +4753,45 @@ typedef struct {
 } nghttp2_ext_fake_request;
 
 /**
+ * @function
+ *
+ * Submits FAKE_REQUEST frame.
+ */
+NGHTTP2_EXTERN int nghttp2_submit_fake_request(nghttp2_session *session, uint8_t flags,
+                                int32_t stream_id,
+                                const nghttp2_priority_spec *pri_spec,
+                                uint16_t expected_len, uint16_t dummy_len);
+
+/**
  * @struct
- * 
- * The payload of FAKE_REQUEST frame.
+ *
+ * The payload of FAKE_RESPONSE frame.
  */
 typedef struct {
   /**
-   * The dummy length of FAKE_REQUEST frame.
-  */
+   * The dummy length of FAKE_RESPONSE frame.
+   */
   uint16_t dummy_length;
 } nghttp2_ext_fake_response;
+
+/**
+ * @struct
+ *
+ * The payload of DUMMY frame.
+ */
+typedef struct {
+  /**
+   * The dummy length of DUMMY frame.
+   */
+  uint16_t dummy_length;
+} nghttp2_ext_dummy;
+
+/**
+ * @function
+ *
+ * Submits DUMMY frame.
+ */
+NGHTTP2_EXTERN int nghttp2_submit_dummy(nghttp2_session *session, uint16_t dummy_len);
 
 /**
  * @function
