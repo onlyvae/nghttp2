@@ -745,7 +745,28 @@ typedef enum {
    * SETTINGS_ENABLE_CONNECT_PROTOCOL
    * (`RFC 8441 <https://tools.ietf.org/html/rfc8441>`_)
    */
-  NGHTTP2_SETTINGS_ENABLE_CONNECT_PROTOCOL = 0x08
+  NGHTTP2_SETTINGS_ENABLE_CONNECT_PROTOCOL = 0x08,
+  /* Extended setting entries -- by h1994st */
+  /**
+   * SETTINGS_DEFENSE_ENABLED
+   *
+   * -- by h1994st
+   */
+  NGHTTP2_SETTINGS_DEFENSE_ENABLED = 0x09,
+  /**
+   * SETTINGS_MIN_OUTBOUND_LEN
+   * available only when local defense is enabled
+   *
+   * -- by h1994st
+   */
+  NGHTTP2_SETTINGS_MIN_OUTBOUND_LEN = 0x0a,
+  /**
+   * SETTINGS_MAX_OUTBOUND_LEN
+   * available only when local defense is enabled
+   *
+   * -- by h1994st
+   */
+  NGHTTP2_SETTINGS_MAX_OUTBOUND_LEN = 0x0b
 } nghttp2_settings_id;
 /* Note: If we add SETTINGS, update the capacity of
    NGHTTP2_INBOUND_NUM_IV as well */
@@ -1413,6 +1434,15 @@ typedef int (*nghttp2_send_data_callback)(nghttp2_session *session,
                                           const uint8_t *framehd, size_t length,
                                           nghttp2_data_source *source,
                                           void *user_data);
+
+typedef int (*nghttp2_send_data_with_dummy_callback)(nghttp2_session *session,
+                                                     nghttp2_frame *frame,
+                                                     const uint8_t *framehd,
+                                                     size_t length,
+                                                     nghttp2_data_source *source,
+                                                     const uint8_t *dummy,
+                                                     size_t dummy_len,
+                                                     void *user_data);
 
 /**
  * @functypedef
@@ -2335,6 +2365,15 @@ NGHTTP2_EXTERN void nghttp2_session_callbacks_set_on_begin_frame_callback(
 NGHTTP2_EXTERN void nghttp2_session_callbacks_set_send_data_callback(
     nghttp2_session_callbacks *cbs,
     nghttp2_send_data_callback send_data_callback);
+
+/**
+ * @function
+ *
+ * This function will send DUMMY frame after DATA frame sent.
+ */
+NGHTTP2_EXTERN void nghttp2_session_callbacks_set_send_data_with_dummy_callback(
+    nghttp2_session_callbacks *cbs,
+    nghttp2_send_data_with_dummy_callback send_data_with_dummy_callback);
 
 /**
  * @function

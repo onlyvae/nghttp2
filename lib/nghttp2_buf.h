@@ -56,6 +56,8 @@ typedef struct {
 #define nghttp2_buf_mark_avail(BUF) ((size_t)((BUF)->mark - (BUF)->last))
 #define nghttp2_buf_cap(BUF) ((size_t)((BUF)->end - (BUF)->begin))
 
+#define nghttp2_buf_dummy_len(BUF) ((size_t)((BUF)->last - (BUF)->mark))
+
 #define nghttp2_buf_pos_offset(BUF) ((size_t)((BUF)->pos - (BUF)->begin))
 #define nghttp2_buf_last_offset(BUF) ((size_t)((BUF)->last - (BUF)->begin))
 
@@ -152,6 +154,10 @@ typedef struct {
      reset, buf->pos and buf->last are positioned at buf->begin +
      offset. */
   size_t offset;
+  /* defense */
+  uint8_t defense;
+  size_t min_chunk_length;
+  size_t max_chunk_length;
 } nghttp2_bufs;
 
 /*
@@ -190,6 +196,40 @@ int nghttp2_bufs_init2(nghttp2_bufs *bufs, size_t chunk_length,
 int nghttp2_bufs_init3(nghttp2_bufs *bufs, size_t chunk_length,
                        size_t max_chunk, size_t chunk_keep, size_t offset,
                        nghttp2_mem *mem);
+
+/*
+ * This is the same as calling nghttp2_random_bufs_init2 with the given
+ * arguments and min_chunk_length = HX_NGHTTP2_FRAMEBUF_MIN_CHUNKLEN,
+ * max_chunk_length = HX_NGHTTP2_FRAMEBUF_MAX_CHUNKLEN.
+ *
+ * -- by h1994st
+ */
+int nghttp2_random_bufs_init(nghttp2_bufs *bufs, size_t chunk_keep, size_t offset,
+                         nghttp2_mem *mem);
+
+/*
+ * Initializes |bufs|. Each buffer size is not fixed. On reset, first
+ * |chunk_keep| buffers are kept and remaining buffers are deleted.
+ * Each buffer will have bufs->pos and bufs->last shifted to left by
+ * |offset| bytes on creation and reset.
+ *
+ * This function allocates first buffer.  bufs->head and bufs->cur
+ * will point to the first buffer after this call.
+ *
+ * This function returns 0 if it succeeds, or one of the following
+ * negative error codes:
+ *
+ * NGHTTP2_ERR_NOMEM
+ *     Out of memory.
+ * NGHTTP2_ERR_INVALID_ARGUMENT
+ *     chunk_keep is 0; or max_chunk < chunk_keep; or offset is too
+ *     long.
+ *
+ * -- by h1994st
+ */
+int nghttp2_random_bufs_init2(nghttp2_bufs *bufs, size_t min_chunk_length,
+                             size_t max_chunk_length, size_t chunk_keep,
+                             size_t offset, nghttp2_mem *mem);
 
 /*
  * Frees any related resources to the |bufs|.
@@ -270,6 +310,21 @@ int nghttp2_bufs_realloc(nghttp2_bufs *bufs, size_t chunk_length);
  *     Out of buffer space.
  */
 int nghttp2_bufs_add(nghttp2_bufs *bufs, const void *data, size_t len);
+
+/*
+ * Repeates to append a single byte |b| to the |bufs| |len| times. The write starts at
+ * bufs->cur->buf.last. A new buffers will be allocated to store all
+ * data.
+ *
+ * This function returns 0 if it succeeds, or one of the following
+ * negative error codes:
+ *
+ * NGHTTP2_ERR_NOMEM
+ *     Out of memory.
+ * NGHTTP2_ERR_BUFFER_ERROR
+ *     Out of buffer space.
+ */
+int nghttp2_bufs_repeat_addb(nghttp2_bufs *bufs, uint8_t b, size_t len);
 
 /*
  * Appends a single byte |b| to the |bufs|. The write starts at

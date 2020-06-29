@@ -183,12 +183,12 @@ Options:
               The minimum length of data chunk sending from the remote
               endpoint.
               Default: )"
-      << HX_NGHTTP2_DEFAULT_MIN_OUTBOUND_LEN << R"(
+      << NGHTTP2_DEFAULT_MIN_OUTBOUND_LEN << R"(
   --peer-max-outbound-length=<N>
               The maximum length of data chunk sending from the remote
               endpoint.
               Default: )"
-      << HX_NGHTTP2_DEFAULT_MAX_OUTBOUND_LEN << R"(
+      << NGHTTP2_DEFAULT_MAX_OUTBOUND_LEN << R"(
   --auto-push Enable auto push.
   --random-padding
               Enable random padding.

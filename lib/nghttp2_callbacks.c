@@ -146,6 +146,12 @@ void nghttp2_session_callbacks_set_send_data_callback(
   cbs->send_data_callback = send_data_callback;
 }
 
+void nghttp2_session_callbacks_set_send_data_with_dummy_callback(
+    nghttp2_session_callbacks *cbs,
+    nghttp2_send_data_with_dummy_callback send_data_with_dummy_callback) {
+  cbs->send_data_with_dummy_callback = send_data_with_dummy_callback;
+}
+
 void nghttp2_session_callbacks_set_pack_extension_callback(
     nghttp2_session_callbacks *cbs,
     nghttp2_pack_extension_callback pack_extension_callback) {

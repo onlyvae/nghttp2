@@ -168,6 +168,12 @@ typedef struct {
   uint32_t max_frame_size;
   uint32_t max_header_list_size;
   uint32_t enable_connect_protocol;
+  /* Extended defense advertisement setting entry -- by h1994st */
+  uint32_t defense_enabled;
+  /* Extended outbound buffer chunk length min -- by h1994st */
+  uint32_t min_outbound_len;
+  /* Extended outbound buffer chunk length max -- by h1994st */
+  uint32_t max_outbound_len;
 } nghttp2_settings_storage;
 
 typedef enum {
@@ -347,6 +353,12 @@ struct nghttp2_session {
      bit is set, it indicates that incoming frame with that type is
      passed to user defined callbacks, otherwise they are ignored. */
   uint8_t user_recv_ext_types[32];
+  /* Two flags indicating whether the defense feature is enabled at
+   the endpoints.
+
+   -- by h1994st */
+  uint8_t local_defense_enabled;
+  uint8_t remote_defense_enabled;
 };
 
 /* Struct used when updating initial window size of each active

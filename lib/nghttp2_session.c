@@ -404,6 +404,12 @@ static void init_settings(nghttp2_settings_storage *settings) {
   settings->initial_window_size = NGHTTP2_INITIAL_WINDOW_SIZE;
   settings->max_frame_size = NGHTTP2_MAX_FRAME_SIZE_MIN;
   settings->max_header_list_size = UINT32_MAX;
+  // Disable defense by default -- by h1994st
+  settings->defense_enabled = 0;
+  // Default value: 54 -- by h1994st
+  settings->min_outbound_len = NGHTTP2_DEFAULT_MIN_OUTBOUND_LEN;
+  // Default value: 16384 -- by h1994st
+  settings->max_outbound_len = NGHTTP2_DEFAULT_MAX_OUTBOUND_LEN;
 }
 
 static void active_outbound_item_reset(nghttp2_active_outbound_item *aob,
@@ -570,7 +576,10 @@ static int session_new(nghttp2_session **session_ptr,
     nbuffer = 1;
   }
   if (option && option->wfp_defense){
-    DEBUGF("[WFP-DEFENSE] enable website fingerprinting defense\n");
+    DEBUGF("[WFP-DEFENSE] local website fingerprinting defense enabled\n");
+    (*session_ptr)->local_defense_enabled = 1;
+    (*session_ptr)->remote_defense_enabled = 0;
+
     rv = nghttp2_random_bufs_init(&(*session_ptr)->aob.framebufs,
                               1, NGHTTP2_FRAME_HDLEN + 1, mem);
   }else
@@ -2102,7 +2111,10 @@ static int session_prep_frame(nghttp2_session *session,
     /* Assuming stream is not NULL */
     assert(stream);
     next_readmax = nghttp2_session_next_data_read(session, stream);
-
+    if (session->local_defense_enabled)
+    {
+      next_readmax = nghttp2_min(next_readmax, (size_t)nghttp2_bufs_cur_avail(&session->aob.framebufs));
+    }
     if (next_readmax == 0) {
 
       /* This must be true since we only pop DATA frame item from
@@ -2712,6 +2724,30 @@ static int session_after_frame_sent1(nghttp2_session *session) {
         if (nghttp2_is_fatal(rv)) {
           return rv;
         }
+        if (session->local_defense_enabled) {
+          /* DUMMY frame callback for DATA frame -- by h1994st */
+          /* We need add callback here, because DUMMY frame here was
+              directly added to DATA frame, not through calling
+              nghttp2_session_add_dummy() or nghttp2_submit_dummy()  */
+          size_t dummy_len;
+          dummy_len = nghttp2_buf_dummy_len(&framebufs->cur->buf);
+          if (dummy_len >= 9) {
+            /* dummy frame */
+            nghttp2_frame dummy_frame;
+            nghttp2_ext_dummy dummy;
+            size_t dummy_payload_len;
+
+            dummy_frame.ext.payload = &dummy;
+            dummy_payload_len = dummy_len - NGHTTP2_FRAME_HDLEN;
+
+            nghttp2_frame_dummy_init(&dummy_frame.ext, dummy_payload_len);
+
+            rv = session_call_on_frame_send(session, &dummy_frame);
+            if (nghttp2_is_fatal(rv)) {
+              return rv;
+            }
+          }
+        }
       }
 
       if (frame->hd.flags & NGHTTP2_FLAG_END_STREAM) {
@@ -2770,6 +2806,30 @@ static int session_after_frame_sent1(nghttp2_session *session) {
   rv = session_call_on_frame_send(session, frame);
   if (nghttp2_is_fatal(rv)) {
     return rv;
+  }
+  if (session->local_defense_enabled) {
+    /* DUMMY frame callback for non-DATA frame -- by h1994st */
+    /* We need add callback here, because DUMMY frame here was
+        directly added to non-DATA frame, not through calling
+        nghttp2_session_add_dummy() or nghttp2_submit_dummy()  */
+    size_t dummy_len;
+    dummy_len = nghttp2_buf_dummy_len(&framebufs->cur->buf);
+    if (dummy_len >= 9) {
+      /* dummy frame */
+      nghttp2_frame dummy_frame;
+      nghttp2_ext_dummy dummy;
+      size_t dummy_payload_len;
+
+      dummy_frame.ext.payload = &dummy;
+      dummy_payload_len = dummy_len - NGHTTP2_FRAME_HDLEN;
+
+      nghttp2_frame_dummy_init(&dummy_frame.ext, dummy_payload_len);
+
+      rv = session_call_on_frame_send(session, &dummy_frame);
+      if (nghttp2_is_fatal(rv)) {
+        return rv;
+      }
+    }
   }
   switch (frame->hd.type) {
   case NGHTTP2_HEADERS: {
@@ -2945,16 +3005,16 @@ static int session_after_frame_sent1(nghttp2_session *session) {
   case NGHTTP2_FAKE_REQUEST: {
     stream = nghttp2_session_get_stream(session, frame->hd.stream_id);
     if (!stream) {
-      break;
+      return NGHTTP2_ERR_CALLBACK_FAILURE;
     }
 
-    // if (stream->item == item) {
-    //   rv = nghttp2_stream_detach_item(stream);
+    if (stream->item == item) {
+      rv = nghttp2_stream_detach_item(stream);
 
-    //   if (nghttp2_is_fatal(rv)) {
-    //     return rv;
-    //   }
-    // }
+      if (nghttp2_is_fatal(rv)) {
+        return rv;
+      }
+    }
 
     stream->state = NGHTTP2_STREAM_OPENING;
     if (frame->hd.flags & NGHTTP2_FLAG_END_STREAM) {
@@ -2973,7 +3033,7 @@ static int session_after_frame_sent1(nghttp2_session *session) {
 
     stream = nghttp2_session_get_stream(session, frame->hd.stream_id);
     if (!stream) {
-      break;
+      return NGHTTP2_ERR_CALLBACK_FAILURE;
     }
 
     if (stream && stream->item == item && aux_data->fake_response_eof) {
@@ -3130,9 +3190,42 @@ static int session_call_send_data(nghttp2_session *session,
   length = frame->hd.length - frame->data.padlen;
   aux_data = &item->aux_data.data;
 
-  rv = session->callbacks.send_data_callback(session, frame, buf->pos, length,
-                                             &aux_data->data_prd.source,
-                                             session->user_data);
+  if (session->local_defense_enabled) {
+    /* Add mark for the begining of dummy frame */
+    buf->mark = buf->last;
+    uint8_t *dummy = NULL;
+    size_t dummy_len = 0;
+    dummy = buf->last;
+
+    if (nghttp2_buf_avail(buf) >= NGHTTP2_FRAME_HDLEN) {
+      dummy_len = nghttp2_buf_avail(buf);
+      /* Add dummy frame */
+      nghttp2_frame_hd hd;
+      nghttp2_frame_hd_init(&hd, nghttp2_buf_avail(buf) - NGHTTP2_FRAME_HDLEN,
+                            NGHTTP2_DUMMY, NGHTTP2_FLAG_NONE, 0);
+
+      /* Pack DUMMY frame header */
+      nghttp2_frame_pack_frame_hd(buf->last, &hd);
+      buf->last += 9;
+
+      /* Pack DUMMY content */
+      nghttp2_bufs_repeat_addb(framebufs, (uint8_t)rand() % 255,
+                               nghttp2_buf_avail(buf));
+      buf->last += nghttp2_buf_avail(buf);
+
+      assert(buf->last == dummy + dummy_len);
+      DEBUGF("[WFP-DEFENSE] add DUMMY frame to fill bufs, frame len = %zu\n",
+             dummy_len);
+    }
+
+    rv = session->callbacks.send_data_with_dummy_callback(
+        session, frame, buf->pos, length, &aux_data->data_prd.source, dummy,
+        dummy_len, session->user_data);
+  } else {
+    rv = session->callbacks.send_data_callback(session, frame, buf->pos, length,
+                                               &aux_data->data_prd.source,
+                                               session->user_data);
+  }
 
   switch (rv) {
   case 0:
@@ -3224,6 +3317,17 @@ static ssize_t nghttp2_session_mem_send_internal(nghttp2_session *session,
           break;
         case NGHTTP2_PUSH_PROMISE:
           opened_stream_id = item->frame.push_promise.promised_stream_id;
+          break;
+        case NGHTTP2_FAKE_REQUEST:
+          /* We have to close stream opened by failed request FAKE_REQUEST. */
+          opened_stream_id = item->frame.hd.stream_id;
+          if (item->aux_data.headers.canceled) {
+            error_code = item->aux_data.headers.error_code;
+          } else {
+            /* Set error_code to REFUSED_STREAM so that application
+               can send request again. */
+            error_code = NGHTTP2_REFUSED_STREAM;
+          }
           break;
         }
         if (opened_stream_id) {
@@ -3362,6 +3466,31 @@ static ssize_t nghttp2_session_mem_send_internal(nghttp2_session *session,
         /* We have already adjusted the next state */
         break;
       }
+      if (session->local_defense_enabled &&
+          nghttp2_buf_avail(buf) >= NGHTTP2_FRAME_HDLEN) {
+        /* Add mark for the begining of DUMMY frame */
+        buf->mark = buf->last;
+        size_t dummy_len;
+        dummy_len = nghttp2_buf_avail(buf);
+        /* Add DUMMY frame */
+        nghttp2_frame_hd hd;
+        nghttp2_frame_hd_init(&hd, nghttp2_buf_avail(buf) - NGHTTP2_FRAME_HDLEN,
+                              NGHTTP2_DUMMY, NGHTTP2_FLAG_NONE, 0);
+
+        /* Pack DUMMY frame header */
+        nghttp2_frame_pack_frame_hd(buf->last, &hd);
+        buf->last += 9;
+
+        /* Pack DUMMY content */
+        nghttp2_bufs_repeat_addb(framebufs, (uint8_t)rand() % 255,
+                                 nghttp2_buf_avail(buf));
+        buf->last += nghttp2_buf_avail(buf);
+
+        assert(buf->last == buf->mark + dummy_len);
+        DEBUGF("[WFP-DEFENSE] add DUMMY frame to fill bufs, frame len = %zu\n",
+               dummy_len);
+
+      }
 
       *data_ptr = buf->pos;
       datalen = nghttp2_buf_len(buf);
@@ -3437,6 +3566,7 @@ static ssize_t nghttp2_session_mem_send_internal(nghttp2_session *session,
       }
 
       break;
+      // return 0;
     }
     case NGHTTP2_OB_SEND_CLIENT_MAGIC: {
       size_t datalen;
@@ -4581,6 +4711,10 @@ int nghttp2_session_update_local_settings(nghttp2_session *session,
     case NGHTTP2_SETTINGS_INITIAL_WINDOW_SIZE:
       new_initial_window_size = (int32_t)iv[i].value;
       break;
+    case NGHTTP2_SETTINGS_DEFENSE_ENABLED:
+      /* Ensure local defense is enabled -- by h1994st */
+      assert(session->local_defense_enabled);
+      break;
     }
   }
   if (header_table_size_seen) {
@@ -4629,6 +4763,16 @@ int nghttp2_session_update_local_settings(nghttp2_session *session,
       break;
     case NGHTTP2_SETTINGS_ENABLE_CONNECT_PROTOCOL:
       session->local_settings.enable_connect_protocol = iv[i].value;
+      break;
+    /* Extended setting entries -- by h1994st */
+    case NGHTTP2_SETTINGS_DEFENSE_ENABLED:
+      session->local_settings.defense_enabled = iv[i].value;
+      break;
+    case NGHTTP2_SETTINGS_MIN_OUTBOUND_LEN:
+      session->local_settings.min_outbound_len = iv[i].value;
+      break;
+    case NGHTTP2_SETTINGS_MAX_OUTBOUND_LEN:
+      session->local_settings.max_outbound_len = iv[i].value;
       break;
     }
   }
@@ -4787,6 +4931,39 @@ int nghttp2_session_on_settings_received(nghttp2_session *session,
       }
 
       session->remote_settings.enable_connect_protocol = entry->value;
+
+      break;
+    case NGHTTP2_SETTINGS_DEFENSE_ENABLED:
+
+      /* SETTINGS frame from remote endpoint -- by h1994st */
+      session->remote_settings.defense_enabled = entry->value;
+      session->remote_defense_enabled = (uint8_t)entry->value;
+
+      break;
+    case NGHTTP2_SETTINGS_MIN_OUTBOUND_LEN:
+
+      /* Check outbound length min value from remote endpoint -- by h1994st */
+      if (entry->value < NGHTTP2_DEFAULT_MIN_OUTBOUND_LEN ||
+          entry->value > NGHTTP2_DEFAULT_MAX_OUTBOUND_LEN) {
+        return session_handle_invalid_connection(
+            session, frame, NGHTTP2_ERR_PROTO,
+            "SETTINGS: invalid NGHTTP2_SETTINGS_MIN_OUTBOUND_LEN");
+      }
+
+      session->aob.framebufs.min_chunk_length = entry->value;
+
+      break;
+    case NGHTTP2_SETTINGS_MAX_OUTBOUND_LEN:
+
+      /* Check outbound length max value from remote endpoint -- by h1994st */
+      if (entry->value < NGHTTP2_DEFAULT_MIN_OUTBOUND_LEN ||
+          entry->value > NGHTTP2_DEFAULT_MAX_OUTBOUND_LEN) {
+        return session_handle_invalid_connection(
+            session, frame, NGHTTP2_ERR_PROTO,
+            "SETTINGS: invalid NGHTTP2_SETTINGS_MAX_OUTBOUND_LEN");
+      }
+
+      session->aob.framebufs.max_chunk_length = entry->value;
 
       break;
     }
@@ -5654,6 +5831,10 @@ static void inbound_frame_set_settings_entry(nghttp2_inbound_frame *iframe) {
   case NGHTTP2_SETTINGS_MAX_FRAME_SIZE:
   case NGHTTP2_SETTINGS_MAX_HEADER_LIST_SIZE:
   case NGHTTP2_SETTINGS_ENABLE_CONNECT_PROTOCOL:
+  /* Extended setting entries -- by h1994st */
+  case NGHTTP2_SETTINGS_DEFENSE_ENABLED:
+  case NGHTTP2_SETTINGS_MIN_OUTBOUND_LEN:
+  case NGHTTP2_SETTINGS_MAX_OUTBOUND_LEN:
     break;
   default:
     DEBUGF("recv: unknown settings id=0x%02x\n", iv.settings_id);
@@ -7779,11 +7960,11 @@ int nghttp2_session_pack_data(nghttp2_session *session, nghttp2_bufs *bufs,
   }
 
   /* Current max DATA length is less then buffer chunk size */
-  // assert(nghttp2_buf_avail(buf) >= datamax);
+  assert(nghttp2_buf_avail(buf) >= datamax);
 
   data_flags = NGHTTP2_DATA_FLAG_NONE;
   payloadlen = aux_data->data_prd.read_callback(
-      session, frame->hd.stream_id, buf->pos, nghttp2_buf_avail(buf), &data_flags,
+      session, frame->hd.stream_id, buf->pos, datamax, &data_flags,
       &aux_data->data_prd.source, session->user_data);
 
   if (payloadlen == NGHTTP2_ERR_DEFERRED ||
@@ -7818,10 +7999,19 @@ int nghttp2_session_pack_data(nghttp2_session *session, nghttp2_bufs *bufs,
   }
 
   if (data_flags & NGHTTP2_DATA_FLAG_NO_COPY) {
-    if (session->callbacks.send_data_callback == NULL) {
-      DEBUGF("NGHTTP2_DATA_FLAG_NO_COPY requires send_data_callback set\n");
+    if (session->local_defense_enabled) {
+      /* by h1994st */
+      if (session->callbacks.send_data_with_dummy_callback == NULL) {
+        DEBUGF("NGHTTP2_DATA_FLAG_NO_COPY requires send_data_with_dummy_callback set\n");
 
-      return NGHTTP2_ERR_CALLBACK_FAILURE;
+        return NGHTTP2_ERR_CALLBACK_FAILURE;
+      }
+    } else {
+      if (session->callbacks.send_data_callback == NULL) {
+        DEBUGF("NGHTTP2_DATA_FLAG_NO_COPY requires send_data_callback set\n");
+
+        return NGHTTP2_ERR_CALLBACK_FAILURE;
+      }
     }
     aux_data->no_copy = 1;
   }
@@ -8030,6 +8220,13 @@ uint32_t nghttp2_session_get_remote_settings(nghttp2_session *session,
     return session->remote_settings.max_header_list_size;
   case NGHTTP2_SETTINGS_ENABLE_CONNECT_PROTOCOL:
     return session->remote_settings.enable_connect_protocol;
+  /* Extended setting entries -- by h1994st */
+  case NGHTTP2_SETTINGS_DEFENSE_ENABLED:
+    return session->remote_settings.defense_enabled;
+  case NGHTTP2_SETTINGS_MIN_OUTBOUND_LEN:
+    return session->remote_settings.min_outbound_len;
+  case NGHTTP2_SETTINGS_MAX_OUTBOUND_LEN:
+    return session->remote_settings.max_outbound_len;
   }
 
   assert(0);
@@ -8053,6 +8250,12 @@ uint32_t nghttp2_session_get_local_settings(nghttp2_session *session,
     return session->local_settings.max_header_list_size;
   case NGHTTP2_SETTINGS_ENABLE_CONNECT_PROTOCOL:
     return session->local_settings.enable_connect_protocol;
+  case NGHTTP2_SETTINGS_DEFENSE_ENABLED:
+    return session->local_settings.defense_enabled;
+  case NGHTTP2_SETTINGS_MIN_OUTBOUND_LEN:
+    return session->local_settings.min_outbound_len;
+  case NGHTTP2_SETTINGS_MAX_OUTBOUND_LEN:
+    return session->local_settings.max_outbound_len;
   }
 
   assert(0);
