@@ -576,7 +576,7 @@ static int session_new(nghttp2_session **session_ptr,
     nbuffer = 1;
   }
   if (option && option->wfp_defense){
-    DEBUGF("[WFP-DEFENSE] local website fingerprinting defense enabled\n");
+    DEBUGF("\x1b[31m[WFP-DEFENSE]\x1b[0m local website fingerprinting defense enabled\n");
     (*session_ptr)->local_defense_enabled = 1;
     (*session_ptr)->remote_defense_enabled = 0;
 
@@ -3214,7 +3214,7 @@ static int session_call_send_data(nghttp2_session *session,
       buf->last += nghttp2_buf_avail(buf);
 
       assert(buf->last == dummy + dummy_len);
-      DEBUGF("[WFP-DEFENSE] add DUMMY frame to fill bufs, frame len = %zu\n",
+      DEBUGF("\x1b[31m[WFP-DEFENSE]\x1b[0m add DUMMY frame to fill bufs, frame len = %zu\n",
              dummy_len);
     }
 
@@ -3487,7 +3487,7 @@ static ssize_t nghttp2_session_mem_send_internal(nghttp2_session *session,
         buf->last += nghttp2_buf_avail(buf);
 
         assert(buf->last == buf->mark + dummy_len);
-        DEBUGF("[WFP-DEFENSE] add DUMMY frame to fill bufs, frame len = %zu\n",
+        DEBUGF("\x1b[31m[WFP-DEFENSE]\x1b[0m add DUMMY frame to fill bufs, frame len = %zu\n",
                dummy_len);
 
       }

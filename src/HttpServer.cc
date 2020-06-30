@@ -632,7 +632,7 @@ int Http2Handler::fill_wb() {
     const uint8_t *data;
     // DATA frame will not be obtained here if NGHTTP2_DATA_FLAG_NO_COPY is set.
     auto datalen = nghttp2_session_mem_send(session_, &data);
-    std::cerr << "[WFP-DEFENSE] get " << datalen << " data from lib" << std::endl;
+    std::cerr << "\x1b[31m[WFP-DEFENSE]\x1b[0m get " << datalen << " data from lib" << std::endl;
 
     if (datalen < 0) {
       std::cerr << "nghttp2_session_mem_send() returned error: "
@@ -817,7 +817,7 @@ int Http2Handler::write_tls() {
 
   for (;;) {
     if (wb_.rleft() > 0) {
-      std::cerr << "[WFP-DEFENSE] SSL_write expected: " << wb_.rleft();
+      std::cerr << "\x1b[31m[WFP-DEFENSE]\x1b[0m SSL_write expected: " << wb_.rleft();
       auto rv = SSL_write(ssl_, wb_.pos, wb_.rleft());
       std::cerr << ", actual: " << rv << std::endl;
 
@@ -1464,7 +1464,7 @@ void prepare_response(Stream *stream, Http2Handler *hd,
       auto length = file_ent->length;
       std::array<uint8_t, 8_k> buf;
 
-      std::cerr << "[WFP-DEFENSE] auto push enabled" << std::endl;
+      std::cerr << "\x1b[31m[WFP-DEFENSE]\x1b[0m auto push enabled" << std::endl;
 
       while (length) {
         ssize_t nread;
@@ -1535,11 +1535,11 @@ void update_html_parser(Http2Handler *hd, Stream *stream, const uint8_t *data,
       // Submit PUSH_PROMISE frame
       auto push_path = make_string_ref(
           stream->balloc, util::get_uri_field(uri.c_str(), u, UF_PATH));
-      std::cerr << "[WFP-DEFENSE] push (" << res_type << ") " << uri << std::endl;
+      std::cerr << "\x1b[31m[WFP-DEFENSE]\x1b[0m push (" << res_type << ") " << uri << std::endl;
 
       hd->submit_push_promise(stream, push_path);
     }else
-      std::cerr << "[WFP-DEFENSE] skip (" << res_type << ") "<< uri << std::endl;
+      std::cerr << "\x1b[31m[WFP-DEFENSE]\x1b[0m skip (" << res_type << ") "<< uri << std::endl;
   }
   html_parser->clear_links();
 }
@@ -1909,7 +1909,7 @@ ssize_t select_padding_callback(nghttp2_session *session,
     std::default_random_engine generator(seed);
     std::uniform_int_distribution<int> distribution(0, 255);
     auto random_padlen = distribution(generator);
-    std::cerr << "[WFP-DEFENSE] random padding length: " << random_padlen << std::endl;
+    std::cerr << "\x1b[31m[WFP-DEFENSE]\x1b[0m random padding length: " << random_padlen << std::endl;
     return std::min(max_payload, frame->hd.length + random_padlen);
   }
   return std::min(max_payload, frame->hd.length + hd->get_config()->padding);
