@@ -2765,16 +2765,13 @@ NGHTTP2_EXTERN void nghttp2_option_set_max_settings(nghttp2_option *option,
 /**
  * @function
  *
- * This option enables the library to defense website fingerprinting
- * attack.  If |val| isnghttp2_option_set_wfp_defense set to nonzero, the library will allocate the
- * buffer randomly so that the size of the outbound frame is not
- * fixed.  Besides, this also enables decoy page, dummy frame
- * injection and delay frame.
+ * This option enables the library to restrict outbound length.
+ * The library will allocate the buffer randomly so that the size 
+ * of the outbound frame is not fixed. 
  *
  * -- by h1994st
  */
-NGHTTP2_EXTERN void nghttp2_option_set_wfp_defense(nghttp2_option *option,
-                                                      int val);
+NGHTTP2_EXTERN void nghttp2_option_set_outbound_restriction(nghttp2_option *option, uint16_t min, uint16_t max);
 /**
  * @function
  *

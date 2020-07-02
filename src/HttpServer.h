@@ -84,8 +84,8 @@ struct Config {
   bool echo_upload;
   bool no_content_length;
   bool defense;                    // Defense advertisement -- by h1994st
-  size_t peer_min_outbound_length; // For defense usage -- by h1994st
-  size_t peer_max_outbound_length; // For defense usage -- by h1994st
+  uint16_t min_outbound_length;    // For defense usage -- by h1994st
+  uint16_t max_outbound_length;    // For defense usage -- by h1994st
   bool auto_push;                  // For auto push -- by h1994st
   bool random_padding;             // For random padding - by h1994st
   Config();

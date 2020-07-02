@@ -575,13 +575,16 @@ static int session_new(nghttp2_session **session_ptr,
   if (nbuffer == 0) {
     nbuffer = 1;
   }
-  if (option && option->wfp_defense){
+  if (option && option->opt_set_mask & NGHTTP2_OPT_OUTBOUND_RESTRICTION) {
     DEBUGF("\x1b[31m[WFP-DEFENSE]\x1b[0m local website fingerprinting defense enabled\n");
     (*session_ptr)->local_defense_enabled = 1;
     (*session_ptr)->remote_defense_enabled = 0;
-
+    /* 1 for Pad Field. 因为buf中有一个字节是用于填充，因此需要要加上一
+    个字节才能满足指定范围 */
     rv = nghttp2_random_bufs_init(&(*session_ptr)->aob.framebufs,
-                              1, NGHTTP2_FRAME_HDLEN + 1, mem);
+                                  option->min_outbound_length + 1,
+                                  option->max_outbound_length + 1,
+                                  1, NGHTTP2_FRAME_HDLEN + 1, mem);
   }else
     /* 1 for Pad Field. */
     rv = nghttp2_bufs_init3(&(*session_ptr)->aob.framebufs,
@@ -3565,8 +3568,8 @@ static ssize_t nghttp2_session_mem_send_internal(nghttp2_session *session,
         return 0;
       }
 
-      break;
-      // return 0;
+      // break;
+      return 0;
     }
     case NGHTTP2_OB_SEND_CLIENT_MAGIC: {
       size_t datalen;

@@ -138,7 +138,9 @@ void nghttp2_option_set_max_settings(nghttp2_option *option, size_t val) {
   option->opt_set_mask |= NGHTTP2_OPT_MAX_SETTINGS;
   option->max_settings = val;
 }
-void nghttp2_option_set_wfp_defense(nghttp2_option *option, int val) {
-  option->opt_set_mask |= NGHTTP2_OPT_WFP_DEFENSE;
-  option->wfp_defense = val;
+void nghttp2_option_set_outbound_restriction(nghttp2_option *option,
+                                             uint16_t min, uint16_t max) {
+  option->opt_set_mask |= NGHTTP2_OPT_OUTBOUND_RESTRICTION;
+  option->min_outbound_length = min;
+  option->max_outbound_length = max;
 }

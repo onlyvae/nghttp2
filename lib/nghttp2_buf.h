@@ -197,15 +197,6 @@ int nghttp2_bufs_init3(nghttp2_bufs *bufs, size_t chunk_length,
                        size_t max_chunk, size_t chunk_keep, size_t offset,
                        nghttp2_mem *mem);
 
-/*
- * This is the same as calling nghttp2_random_bufs_init2 with the given
- * arguments and min_chunk_length = HX_NGHTTP2_FRAMEBUF_MIN_CHUNKLEN,
- * max_chunk_length = HX_NGHTTP2_FRAMEBUF_MAX_CHUNKLEN.
- *
- * -- by h1994st
- */
-int nghttp2_random_bufs_init(nghttp2_bufs *bufs, size_t chunk_keep, size_t offset,
-                         nghttp2_mem *mem);
 
 /*
  * Initializes |bufs|. Each buffer size is not fixed. On reset, first
@@ -227,8 +218,8 @@ int nghttp2_random_bufs_init(nghttp2_bufs *bufs, size_t chunk_keep, size_t offse
  *
  * -- by h1994st
  */
-int nghttp2_random_bufs_init2(nghttp2_bufs *bufs, size_t min_chunk_length,
-                             size_t max_chunk_length, size_t chunk_keep,
+int nghttp2_random_bufs_init(nghttp2_bufs *bufs, uint16_t min_chunk_length,
+                             uint16_t max_chunk_length, size_t chunk_keep,
                              size_t offset, nghttp2_mem *mem);
 
 /*

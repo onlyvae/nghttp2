@@ -68,7 +68,7 @@ typedef enum {
   NGHTTP2_OPT_NO_CLOSED_STREAMS = 1 << 10,
   NGHTTP2_OPT_MAX_OUTBOUND_ACK = 1 << 11,
   NGHTTP2_OPT_MAX_SETTINGS = 1 << 12,
-  NGHTTP2_OPT_WFP_DEFENSE = 1 << 13
+  NGHTTP2_OPT_OUTBOUND_RESTRICTION = 1 << 13
 } nghttp2_option_flag;
 
 /**
@@ -137,7 +137,8 @@ struct nghttp2_option {
    *
    * -- by h1994st
    */
-  int wfp_defense;
+  uint16_t min_outbound_length;
+  uint16_t max_outbound_length;
 };
 
 #endif /* NGHTTP2_OPTION_H */

@@ -114,9 +114,9 @@ Config::Config()
       // Defense advertisement -- by h1994st
       defense(false),
       // For defense usage -- by h1994st
-      peer_min_outbound_length(NGHTTP2_DEFAULT_MIN_OUTBOUND_LEN),
+      min_outbound_length(NGHTTP2_DEFAULT_MIN_OUTBOUND_LEN),
       // For defense usage -- by h1994st
-      peer_max_outbound_length(NGHTTP2_DEFAULT_MAX_OUTBOUND_LEN),
+      max_outbound_length(NGHTTP2_DEFAULT_MAX_OUTBOUND_LEN),
       // For auto push -- by h1994st
       auto_push(false),
       // For random padding -- by h1994st
@@ -266,8 +266,8 @@ public:
     }
 
     if (config_->defense) {
-      // set defense option -- by h1994st
-      nghttp2_option_set_wfp_defense(option_, 1);
+      nghttp2_option_set_outbound_restriction(
+            option_, config->min_outbound_length, config->max_outbound_length);
 
       // Four extension frames  -- by h1994st
       nghttp2_option_set_builtin_recv_extension_type(option_, NGHTTP2_DUMMY);
@@ -899,19 +899,6 @@ int Http2Handler::connection_made() {
     entry[niv].value = 1;
     ++niv;
 
-    if (config->peer_min_outbound_length >=
-        NGHTTP2_DEFAULT_MIN_OUTBOUND_LEN) {
-      entry[niv].settings_id = NGHTTP2_SETTINGS_MIN_OUTBOUND_LEN;
-      entry[niv].value = config->peer_min_outbound_length;
-      ++niv;
-    }
-
-    if (config->peer_min_outbound_length <=
-        NGHTTP2_DEFAULT_MAX_OUTBOUND_LEN) {
-      entry[niv].settings_id = NGHTTP2_SETTINGS_MAX_OUTBOUND_LEN;
-      entry[niv].value = config->peer_max_outbound_length;
-      ++niv;
-    }
   }
 
   r = nghttp2_submit_settings(session_, NGHTTP2_FLAG_NONE, entry.data(), niv);

@@ -157,15 +157,8 @@ int nghttp2_bufs_init3(nghttp2_bufs *bufs, size_t chunk_length,
   return 0;
 }
 
-int nghttp2_random_bufs_init(nghttp2_bufs *bufs, size_t chunk_keep,
-                             size_t offset, nghttp2_mem *mem) {
-  return nghttp2_random_bufs_init2(bufs, NGHTTP2_FRAMEBUF_MIN_CHUNKLEN,
-                                  NGHTTP2_FRAMEBUF_MAX_CHUNKLEN, chunk_keep,
-                                  offset, mem);
-}
-
-int nghttp2_random_bufs_init2(nghttp2_bufs *bufs, size_t min_chunk_length,
-                             size_t max_chunk_length, size_t chunk_keep,
+int nghttp2_random_bufs_init(nghttp2_bufs *bufs, uint16_t min_chunk_length,
+                             uint16_t max_chunk_length, size_t chunk_keep,
                              size_t offset, nghttp2_mem *mem) {
   int rv;
   nghttp2_buf_chain *chain;

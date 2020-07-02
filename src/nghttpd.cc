@@ -179,12 +179,12 @@ Options:
   --no-content-length
               Don't send content-length header field.
   --defense   Enable defense.
-  --peer-min-outbound-length=<N>
+  --min-outbound-length=<N>
               The minimum length of data chunk sending from the remote
               endpoint.
               Default: )"
       << NGHTTP2_DEFAULT_MIN_OUTBOUND_LEN << R"(
-  --peer-max-outbound-length=<N>
+  --max-outbound-length=<N>
               The maximum length of data chunk sending from the remote
               endpoint.
               Default: )"
@@ -245,9 +245,9 @@ int main(int argc, char **argv) {
         // Defense advertisement -- by h1994st
         {"defense", no_argument, &flag, 12},
         // For defense usage -- by h1994st
-        {"peer-min-outbound-length", required_argument, &flag, 13},
+        {"min-outbound-length", required_argument, &flag, 13},
         // For defense usage -- by h1994st
-        {"peer-max-outbound-length", required_argument, &flag, 14},
+        {"max-outbound-length", required_argument, &flag, 14},
         // For auto push -- by h1994st
         {"auto-push", no_argument, &flag, 15},
         // For random padding -- by h1994st
@@ -436,12 +436,12 @@ int main(int argc, char **argv) {
         config.defense = true;
         break;
       case 13:
-        // min outbound length (for remote) option -- by h1994st
-        config.peer_min_outbound_length = strtoul(optarg, nullptr, 10);
+        // min outbound length option -- by h1994st
+        config.min_outbound_length = strtoul(optarg, nullptr, 10);
         break;
       case 14:
-        // max outbound length (for remote) option -- by h1994st
-        config.peer_max_outbound_length = strtoul(optarg, nullptr, 10);
+        // max outbound length option -- by h1994st
+        config.max_outbound_length = strtoul(optarg, nullptr, 10);
         break;
       case 15:
         // auto push option -- by h1994st
