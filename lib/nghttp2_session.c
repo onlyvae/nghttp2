@@ -354,24 +354,11 @@ static void session_inbound_frame_reset(nghttp2_session *session) {
         }
         nghttp2_frame_origin_free(&iframe->frame.ext, mem);
         break;
-      case NGHTTP2_FAKE_REQUEST:
-        if ((session->builtin_recv_ext_types & NGHTTP2_TYPEMASK_FAKE_REQUEST) == 0) {
+      case NGHTTP2_PADDING:
+        if ((session->builtin_recv_ext_types & NGHTTP2_TYPEMASK_PADDING) == 0) {
           break;
         }
-        nghttp2_frame_fake_request_free(&iframe->frame.ext);
-        break;
-      case NGHTTP2_FAKE_RESPONSE:
-        if ((session->builtin_recv_ext_types &
-             NGHTTP2_TYPEMASK_FAKE_RESPONSE) == 0) {
-          break;
-        }
-        nghttp2_frame_fake_response_free(&iframe->frame.ext);
-        break;
-      case NGHTTP2_DUMMY:
-        if ((session->builtin_recv_ext_types & NGHTTP2_TYPEMASK_DUMMY) == 0) {
-          break;
-        }
-        nghttp2_frame_dummy_free(&iframe->frame.ext);
+        nghttp2_frame_padding_free(&iframe->frame.ext);
         break;
       }
     }
@@ -576,7 +563,7 @@ static int session_new(nghttp2_session **session_ptr,
     nbuffer = 1;
   }
   if (option && option->opt_set_mask & NGHTTP2_OPT_OUTBOUND_RESTRICTION) {
-    DEBUGF("\x1b[31m[WFP-DEFENSE]\x1b[0m local website fingerprinting defense enabled\n");
+    DEBUGF("\x1b[32m[WFP-DEFENSE]\x1b[0m local website fingerprinting defense enabled\n");
     (*session_ptr)->local_defense_enabled = 1;
     (*session_ptr)->remote_defense_enabled = 0;
     /* 1 for Pad Field. 因为buf中有一个字节是用于填充，因此需要要加上一
@@ -890,7 +877,6 @@ int nghttp2_session_add_item(nghttp2_session *session,
 
   switch (frame->hd.type) {
   case NGHTTP2_DATA:
-  case NGHTTP2_FAKE_RESPONSE:
     if (!stream) {
       return NGHTTP2_ERR_STREAM_CLOSED;
     }
@@ -972,11 +958,6 @@ int nghttp2_session_add_item(nghttp2_session *session,
       session->window_update_queued = 1;
     }
     nghttp2_outbound_queue_push(&session->ob_reg, item);
-    item->queued = 1;
-    return 0;
-  case NGHTTP2_FAKE_REQUEST:
-    /* FAKE_REQUEST frame, syn queue */
-    nghttp2_outbound_queue_push(&session->ob_syn, item);
     item->queued = 1;
     return 0;
   default:
@@ -1814,60 +1795,7 @@ static int session_predicate_origin_send(nghttp2_session *session) {
   return 0;
 }
 
-static int session_predicate_fake_request_send(nghttp2_session *session,
-                                                   nghttp2_stream *stream) {
-  int rv;
-  rv = session_predicate_for_stream_send(session, stream);
-  if (rv != 0) {
-    return rv;
-  }
-
-  assert(stream);
-  if (session->server) {
-    return NGHTTP2_ERR_PROTO;
-  }
-  if (nghttp2_session_is_my_stream_id(session, stream->stream_id)) {
-    if (stream->state == NGHTTP2_STREAM_CLOSING) {
-      return NGHTTP2_ERR_STREAM_CLOSING;
-    }
-    return 0;
-  }
-  if (stream->state == NGHTTP2_STREAM_OPENED) {
-    return 0;
-  }
-  if (stream->state == NGHTTP2_STREAM_CLOSING) {
-    return NGHTTP2_ERR_STREAM_CLOSING;
-  }
-
-  return NGHTTP2_ERR_INVALID_STREAM_STATE;
-}
-
-static int session_predicate_fake_response_send(nghttp2_session *session,
-                                                    nghttp2_stream *stream) {
-  int rv;
-  rv = session_predicate_for_stream_send(session, stream);
-  if (rv != 0) {
-    return rv;
-  }
-
-  assert(stream); // 无法在0流上发送
-  if (!session->server) {
-    return NGHTTP2_ERR_PROTO;
-  }
-  if (nghttp2_session_is_my_stream_id(session, stream->stream_id)) {
-    /* This ID should be an odd number, otherwise return error code. */
-    return NGHTTP2_ERR_INVALID_STREAM_ID;
-  }
-  if (stream->state == NGHTTP2_STREAM_OPENING) {
-    return 0;
-  }
-  if (stream->state == NGHTTP2_STREAM_CLOSING) {
-    return NGHTTP2_ERR_STREAM_CLOSING;
-  }
-  return NGHTTP2_ERR_INVALID_STREAM_STATE;
-}
-
-static int session_predicate_dummy_send(nghttp2_session *session) {
+static int session_predicate_padding_send(nghttp2_session *session) {
   if (session_is_closing(session))
     return NGHTTP2_ERR_SESSION_CLOSING;
   return 0;
@@ -2420,72 +2348,12 @@ static int session_prep_frame(nghttp2_session *session,
       }
 
       return 0;
-    case NGHTTP2_FAKE_REQUEST: {
-      nghttp2_stream *stream;
-      nghttp2_ext_fake_request *fake_request;
-
-      fake_request = frame->ext.payload;
-
-      stream = nghttp2_session_open_stream(
-          session, frame->hd.stream_id, NGHTTP2_STREAM_FLAG_NONE,
-          &fake_request->pri_spec, NGHTTP2_STREAM_INITIAL, NULL);
-
-      if (stream == NULL) {
-        return NGHTTP2_ERR_NOMEM;
-      }
-
-      rv = session_predicate_fake_request_send(session, stream);
+    case NGHTTP2_PADDING:{
+      rv = session_predicate_padding_send(session);
       if (rv != 0) {
         return rv;
       }
-
-      assert(stream);
-
-      rv = nghttp2_frame_pack_fake_request(&session->aob.framebufs, &frame->ext);
-      if (rv != 0) {
-        return rv;
-      }
-
-      return 0;
-    }
-    case NGHTTP2_FAKE_RESPONSE: {
-      nghttp2_ext_fake_response *fake_response;
-      nghttp2_stream *stream;
-      uint16_t max_payloadlen;
-
-      stream = nghttp2_session_get_stream(session, frame->hd.stream_id);
-      rv = session_predicate_fake_response_send(session, stream);
-      if (rv != 0) {
-        return rv;
-      }
-      max_payloadlen = aux_data->fake_response_payload_len;
-      if (max_payloadlen > (uint16_t)nghttp2_bufs_cur_avail(&session->aob.framebufs)) {
-        max_payloadlen = (uint16_t)nghttp2_bufs_cur_avail(&session->aob.framebufs);
-      }
-
-      frame->hd.length = max_payloadlen;
-      fake_response = frame->ext.payload;
-      fake_response->dummy_length = max_payloadlen;
-      aux_data->fake_response_payload_len -= max_payloadlen;
-      /* handle EOF */
-      if (!aux_data->fake_response_payload_len) {
-        aux_data->fake_response_eof = 1;
-        frame->hd.flags = NGHTTP2_FLAG_END_STREAM;
-      }
-
-      rv = nghttp2_frame_pack_fake_response(&session->aob.framebufs,
-                                            &frame->ext);
-      if (rv != 0) {
-        return rv;
-      }
-      return 0;
-    }
-    case NGHTTP2_DUMMY:{
-      rv = session_predicate_dummy_send(session);
-      if (rv != 0) {
-        return rv;
-      }
-      rv = nghttp2_frame_pack_dummy(&session->aob.framebufs, &frame->ext);
+      rv = nghttp2_frame_pack_padding(&session->aob.framebufs, &frame->ext);
       if (rv != 0) {
         return rv;
       }
@@ -2728,24 +2596,21 @@ static int session_after_frame_sent1(nghttp2_session *session) {
           return rv;
         }
         if (session->local_defense_enabled) {
-          /* DUMMY frame callback for DATA frame -- by h1994st */
-          /* We need add callback here, because DUMMY frame here was
-              directly added to DATA frame, not through calling
-              nghttp2_session_add_dummy() or nghttp2_submit_dummy()  */
-          size_t dummy_len;
-          dummy_len = nghttp2_buf_dummy_len(&framebufs->cur->buf);
-          if (dummy_len >= 9) {
-            /* dummy frame */
-            nghttp2_frame dummy_frame;
-            nghttp2_ext_dummy dummy;
-            size_t dummy_payload_len;
+          /* We need add call callback here, because PADDING frame here was
+              directly added to buffer, not through calling
+              nghttp2_session_add_padding() or nghttp2_submit_padding()  */
+          size_t padding_frame_len;
+          padding_frame_len = nghttp2_buf_padding_frame_len(&framebufs->cur->buf);
+          if (padding_frame_len >= 9) {
+            nghttp2_ext_padding padding;
+            size_t padding_len;
 
-            dummy_frame.ext.payload = &dummy;
-            dummy_payload_len = dummy_len - NGHTTP2_FRAME_HDLEN;
+            frame->ext.payload = &padding;
+            padding_len = padding_frame_len - NGHTTP2_FRAME_HDLEN;
 
-            nghttp2_frame_dummy_init(&dummy_frame.ext, dummy_payload_len);
+            nghttp2_frame_padding_init(&frame->ext, NGHTTP2_FLAG_NONE, 0, padding_len);
 
-            rv = session_call_on_frame_send(session, &dummy_frame);
+            rv = session_call_on_frame_send(session, frame);
             if (nghttp2_is_fatal(rv)) {
               return rv;
             }
@@ -2793,14 +2658,11 @@ static int session_after_frame_sent1(nghttp2_session *session) {
     }
   }
 
-  /* FAKE_REQUEST frame */
-
-
   if (ext_aux_data->builtin == 1) {
     /* builtin extension frame */
-    if (frame->hd.type == NGHTTP2_FAKE_REQUEST) {
+    if (frame->hd.type == NGHTTP2_PADDING) {
       if (nghttp2_bufs_next_present(framebufs)) {
-        DEBUGF("send: next FAKE_REQUEST frame, just return\n");
+        DEBUGF("send: next PADDING frame, just return\n");
         return 0;
       }
     }
@@ -2811,24 +2673,22 @@ static int session_after_frame_sent1(nghttp2_session *session) {
     return rv;
   }
   if (session->local_defense_enabled) {
-    /* DUMMY frame callback for non-DATA frame -- by h1994st */
-    /* We need add callback here, because DUMMY frame here was
+    /* PADDING frame callback for non-DATA frame -- by h1994st */
+    /* We need add callback here, because PADDING frame here was
         directly added to non-DATA frame, not through calling
-        nghttp2_session_add_dummy() or nghttp2_submit_dummy()  */
-    size_t dummy_len;
-    dummy_len = nghttp2_buf_dummy_len(&framebufs->cur->buf);
-    if (dummy_len >= 9) {
-      /* dummy frame */
-      nghttp2_frame dummy_frame;
-      nghttp2_ext_dummy dummy;
-      size_t dummy_payload_len;
+        nghttp2_session_add_padding() or nghttp2_submit_padding()  */
+    size_t padding_frame_len;
+    padding_frame_len = nghttp2_buf_padding_frame_len(&framebufs->cur->buf);
+    if (padding_frame_len >= 9) {
+      nghttp2_ext_padding padding;
+      size_t padding_len;
 
-      dummy_frame.ext.payload = &dummy;
-      dummy_payload_len = dummy_len - NGHTTP2_FRAME_HDLEN;
+      frame->ext.payload = &padding;
+      padding_len = padding_frame_len - NGHTTP2_FRAME_HDLEN;
 
-      nghttp2_frame_dummy_init(&dummy_frame.ext, dummy_payload_len);
+      nghttp2_frame_padding_init(&frame->ext, NGHTTP2_FLAG_NONE, 0, padding_len);
 
-      rv = session_call_on_frame_send(session, &dummy_frame);
+      rv = session_call_on_frame_send(session, frame);
       if (nghttp2_is_fatal(rv)) {
         return rv;
       }
@@ -3005,58 +2865,6 @@ static int session_after_frame_sent1(nghttp2_session *session) {
     }
 
     return 0;
-  case NGHTTP2_FAKE_REQUEST: {
-    stream = nghttp2_session_get_stream(session, frame->hd.stream_id);
-    if (!stream) {
-      return NGHTTP2_ERR_CALLBACK_FAILURE;
-    }
-
-    if (stream->item == item) {
-      rv = nghttp2_stream_detach_item(stream);
-
-      if (nghttp2_is_fatal(rv)) {
-        return rv;
-      }
-    }
-
-    stream->state = NGHTTP2_STREAM_OPENING;
-    if (frame->hd.flags & NGHTTP2_FLAG_END_STREAM) {
-      nghttp2_stream_shutdown(stream, NGHTTP2_SHUT_WR);
-    }
-    rv = nghttp2_session_close_stream_if_shut_rdwr(session, stream);
-    if (nghttp2_is_fatal(rv)) {
-      return rv;
-    }
-    return 0;
-  }
-  case NGHTTP2_FAKE_RESPONSE: {
-    nghttp2_ext_aux_data *aux_data;
-
-    aux_data = &item->aux_data.ext;
-
-    stream = nghttp2_session_get_stream(session, frame->hd.stream_id);
-    if (!stream) {
-      return NGHTTP2_ERR_CALLBACK_FAILURE;
-    }
-
-    if (stream && stream->item == item && aux_data->fake_response_eof) {
-      rv = nghttp2_stream_detach_item(stream);
-
-      if (nghttp2_is_fatal(rv)) {
-        return rv;
-      }
-
-      if (frame->hd.flags & NGHTTP2_FLAG_END_STREAM) {
-        stream->state = NGHTTP2_STREAM_OPENED;
-        nghttp2_stream_shutdown(stream, NGHTTP2_SHUT_WR);
-      }
-      rv = nghttp2_session_close_stream_if_shut_rdwr(session, stream);
-      if (nghttp2_is_fatal(rv)) {
-        return rv;
-      }
-    }
-    return 0;
-  }
   default:
     return 0;
   }
@@ -3107,29 +2915,15 @@ static int session_after_frame_sent2(nghttp2_session *session) {
     ext_aux_data = &item->aux_data.ext;
     if (ext_aux_data->builtin == 1) {
       /* builtin extension frame */
-      if (frame->hd.type == NGHTTP2_FAKE_REQUEST) {
-
+      if (frame->hd.type == NGHTTP2_PADDING) {
         if (nghttp2_bufs_next_present(framebufs)) {
           framebufs->cur = framebufs->cur->next;
 
-          DEBUGF("send: next FAKE_REQUEST frame, %zu bytes\n",
+          DEBUGF("send: next PADDING frame, %zu bytes\n",
                          nghttp2_buf_len(&framebufs->cur->buf));
 
           return 0;
         }
-      }
-      if (frame->hd.type == NGHTTP2_FAKE_RESPONSE) {
-        if (ext_aux_data->fake_response_eof) {
-          DEBUGF("send: no more FAKE_RESPONSE frame\n");
-          active_outbound_item_reset(&session->aob, mem);
-
-          return 0;
-        }
-        ext_aux_data->fake_response_eof = 0;
-        aob->item = NULL;
-        active_outbound_item_reset(&session->aob, mem);
-
-        return 0;
       }
     }
     
@@ -3194,36 +2988,37 @@ static int session_call_send_data(nghttp2_session *session,
   aux_data = &item->aux_data.data;
 
   if (session->local_defense_enabled) {
-    /* Add mark for the begining of dummy frame */
+    /* Add mark for the begining of PADDING frame */
     buf->mark = buf->last;
-    uint8_t *dummy = NULL;
-    size_t dummy_len = 0;
-    dummy = buf->last;
+    uint8_t *padding = NULL;
+    size_t padding_len = 0;
+    padding = buf->last;
 
     if (nghttp2_buf_avail(buf) >= NGHTTP2_FRAME_HDLEN) {
-      dummy_len = nghttp2_buf_avail(buf);
-      /* Add dummy frame */
+      padding_len = nghttp2_buf_avail(buf);
+      /* Add PADDING frame */
       nghttp2_frame_hd hd;
       nghttp2_frame_hd_init(&hd, nghttp2_buf_avail(buf) - NGHTTP2_FRAME_HDLEN,
-                            NGHTTP2_DUMMY, NGHTTP2_FLAG_NONE, 0);
+                            NGHTTP2_PADDING, NGHTTP2_FLAG_NONE, 0);
 
-      /* Pack DUMMY frame header */
+      /* Pack PADDING frame header */
       nghttp2_frame_pack_frame_hd(buf->last, &hd);
       buf->last += 9;
 
-      /* Pack DUMMY content */
+      /* Pack PADDING content */
       nghttp2_bufs_repeat_addb(framebufs, (uint8_t)rand() % 255,
                                nghttp2_buf_avail(buf));
       buf->last += nghttp2_buf_avail(buf);
 
-      assert(buf->last == dummy + dummy_len);
-      DEBUGF("\x1b[31m[WFP-DEFENSE]\x1b[0m add DUMMY frame to fill bufs, frame len = %zu\n",
-             dummy_len);
+      assert(buf->last == padding + padding_len);
+      DEBUGF("\x1b[32m[WFP-DEFENSE]\x1b[0m add PADDING frame to fill bufs, frame "
+             "len = %zu\n",
+             padding_len);
     }
 
-    rv = session->callbacks.send_data_with_dummy_callback(
-        session, frame, buf->pos, length, &aux_data->data_prd.source, dummy,
-        dummy_len, session->user_data);
+    rv = session->callbacks.send_data_with_padding_callback(
+        session, frame, buf->pos, length, &aux_data->data_prd.source, padding,
+        padding_len, session->user_data);
   } else {
     rv = session->callbacks.send_data_callback(session, frame, buf->pos, length,
                                                &aux_data->data_prd.source,
@@ -3320,17 +3115,6 @@ static ssize_t nghttp2_session_mem_send_internal(nghttp2_session *session,
           break;
         case NGHTTP2_PUSH_PROMISE:
           opened_stream_id = item->frame.push_promise.promised_stream_id;
-          break;
-        case NGHTTP2_FAKE_REQUEST:
-          /* We have to close stream opened by failed request FAKE_REQUEST. */
-          opened_stream_id = item->frame.hd.stream_id;
-          if (item->aux_data.headers.canceled) {
-            error_code = item->aux_data.headers.error_code;
-          } else {
-            /* Set error_code to REFUSED_STREAM so that application
-               can send request again. */
-            error_code = NGHTTP2_REFUSED_STREAM;
-          }
           break;
         }
         if (opened_stream_id) {
@@ -3471,28 +3255,28 @@ static ssize_t nghttp2_session_mem_send_internal(nghttp2_session *session,
       }
       if (session->local_defense_enabled &&
           nghttp2_buf_avail(buf) >= NGHTTP2_FRAME_HDLEN) {
-        /* Add mark for the begining of DUMMY frame */
+        /* Add mark for the begining of PADDING frame */
         buf->mark = buf->last;
-        size_t dummy_len;
-        dummy_len = nghttp2_buf_avail(buf);
-        /* Add DUMMY frame */
+        size_t padding_len;
+        padding_len = nghttp2_buf_avail(buf);
+        /* Add PADDING frame */
         nghttp2_frame_hd hd;
         nghttp2_frame_hd_init(&hd, nghttp2_buf_avail(buf) - NGHTTP2_FRAME_HDLEN,
-                              NGHTTP2_DUMMY, NGHTTP2_FLAG_NONE, 0);
+                              NGHTTP2_PADDING, NGHTTP2_FLAG_NONE, 0);
 
-        /* Pack DUMMY frame header */
+        /* Pack PADDING frame header */
         nghttp2_frame_pack_frame_hd(buf->last, &hd);
         buf->last += 9;
 
-        /* Pack DUMMY content */
+        /* Pack PADDING content */
         nghttp2_bufs_repeat_addb(framebufs, (uint8_t)rand() % 255,
                                  nghttp2_buf_avail(buf));
         buf->last += nghttp2_buf_avail(buf);
 
-        assert(buf->last == buf->mark + dummy_len);
-        DEBUGF("\x1b[31m[WFP-DEFENSE]\x1b[0m add DUMMY frame to fill bufs, frame len = %zu\n",
-               dummy_len);
-
+        assert(buf->last == buf->mark + padding_len);
+        DEBUGF("\x1b[32m[WFP-DEFENSE]\x1b[0m add PADDING frame to fill bufs, "
+               "frame len = %zu\n",
+               padding_len);
       }
 
       *data_ptr = buf->pos;
@@ -5326,130 +5110,22 @@ int nghttp2_session_on_origin_received(nghttp2_session *session,
   return session_call_on_frame_received(session, frame);
 }
 
-int nghttp2_session_on_fake_request_received(nghttp2_session *session,
-                                       nghttp2_frame *frame) {
-  int rv = 0;
-  nghttp2_stream *stream;
-  nghttp2_ext_fake_request *fake_request = frame->ext.payload;
-
-  assert(session->server);
-
-  if (!session_is_new_peer_stream_id(session, frame->hd.stream_id)) {
-    if (frame->hd.stream_id == 0 ||
-        nghttp2_session_is_my_stream_id(session, frame->hd.stream_id)) {
-      return session_handle_invalid_connection(
-          session, frame, NGHTTP2_ERR_PROTO,
-          "FAKE_REQUEST: invalid stream_id");
-    }
-
-    stream = nghttp2_session_get_stream_raw(session, frame->hd.stream_id);
-    if (stream && (stream->shut_flags & NGHTTP2_SHUT_RD)) {
-      return session_handle_invalid_connection(session, frame,
-                                               NGHTTP2_ERR_STREAM_CLOSED,
-                                               "FAKE_REQUEST: stream closed");
-    }
-
-    return NGHTTP2_ERR_IGN_PAYLOAD;
-  }
-  session->last_recv_stream_id = frame->hd.stream_id;
-
-  if (session_is_incoming_concurrent_streams_max(session))
-    return session_handle_invalid_connection(
-        session, frame, NGHTTP2_ERR_PROTO,
-        "FAKE_REQUEST: max concurrent streams exceeded");
-
-  if (!session_allow_incoming_new_stream(session)) 
-    return NGHTTP2_ERR_IGN_PAYLOAD;
-
-  if (fake_request->pri_spec.stream_id == frame->hd.stream_id)
-    return session_handle_invalid_connection(session, frame, NGHTTP2_ERR_PROTO,
-                                             "FAKE_REQUEST: depend on itself");
-
-  if (session_is_incoming_concurrent_streams_pending_max(session))
-    return session_handle_invalid_stream(session, frame,
-                                         NGHTTP2_ERR_REFUSED_STREAM);
-
-  stream = nghttp2_session_open_stream(
-      session, frame->hd.stream_id, NGHTTP2_STREAM_FLAG_NONE,
-      &fake_request->pri_spec, NGHTTP2_STREAM_OPENING, NULL);
-  if (!stream) {
-    return NGHTTP2_ERR_NOMEM;
-  }
-
-  rv = nghttp2_session_adjust_closed_stream(session);
-  if (nghttp2_is_fatal(rv)) {
-    return rv;
-  }
-
-  session->last_proc_stream_id = session->last_recv_stream_id;
-
-  assert(stream->state == NGHTTP2_STREAM_OPENING);
-  if (fake_request->expected_response_length && !session_is_closing(session)) {
-    /* Send fake_response */
-    rv = nghttp2_session_add_fake_response(
-        session, frame->hd.stream_id, fake_request->expected_response_length);
-    if (rv != 0) {
-      return rv;
-    } 
-    /* Test send dummy */
-    // rv = nghttp2_submit_dummy(session, 100);
-    // rv = nghttp2_session_add_dummy(session, fake_request->expected_response_length);
-    if (rv != 0) {
-      return rv;
-    }
-  }
-  /* Check FAKE_REQUEST END_STREAM */
-  if (frame->hd.flags & NGHTTP2_FLAG_END_STREAM) {
-    /* Close stream. */
-    nghttp2_stream_shutdown(stream, NGHTTP2_SHUT_RD);
-    rv = nghttp2_session_close_stream_if_shut_rdwr(session, stream);
-    if (nghttp2_is_fatal(rv)) {
-      return rv;
-    }
-  }
-  return session_call_on_frame_received(session, frame);
-}
-
-int nghttp2_session_on_fake_response_received(nghttp2_session *session,
-                                                  nghttp2_frame *frame) {
-  int rv = 0;
-  nghttp2_stream *stream;
-
-  stream = nghttp2_session_get_stream(session, frame->hd.stream_id);
-
-  assert(stream);
-
-  /* This function is only called if stream_id is local side initiated. */
-  assert(nghttp2_session_is_my_stream_id(session, frame->hd.stream_id));
-  if (frame->hd.stream_id == 0)
-    return session_inflate_handle_invalid_connection(
-        session, frame, NGHTTP2_ERR_PROTO, "FAKE_RESPONSE: stream_id == 0");
-  if (stream->shut_flags & NGHTTP2_SHUT_RD)
-    return session_inflate_handle_invalid_connection(
-        session, frame, NGHTTP2_ERR_STREAM_CLOSED,
-        "FAKE_RESPONSE: stream closed");
-
-  if (frame->hd.flags & NGHTTP2_FLAG_END_STREAM) {
-    stream->state = NGHTTP2_STREAM_OPENED;
-
-    /* Close stream. */
-    nghttp2_stream_shutdown(stream, NGHTTP2_SHUT_RD);
-    rv = nghttp2_session_close_stream_if_shut_rdwr(session, stream);
-    if (nghttp2_is_fatal(rv)) {
-      return rv;
-    }
-  }
-
-  return session_call_on_frame_received(session, frame);
-}
-
-int nghttp2_session_on_dummy_received(nghttp2_session *session,
+int nghttp2_session_on_padding_received(nghttp2_session *session,
                                               nghttp2_frame *frame) {
+  int rv = 0;
+  nghttp2_ext_padding *padding = frame->ext.payload;
 
   if (frame->hd.stream_id != 0)
     return session_inflate_handle_invalid_connection(
-        session, frame, NGHTTP2_ERR_PROTO, "DUMMY: stream_id != 0");
+        session, frame, NGHTTP2_ERR_PROTO, "PADDING: stream_id != 0");
 
+  if (padding->expected_padding_length && !session_is_closing(session)) {
+    /* response padding */
+    rv = nghttp2_session_add_padding(session, NGHTTP2_FLAG_NONE, 0, padding->expected_padding_length);
+    if (rv != 0) {
+      return rv;
+    }
+  }
   return session_call_on_frame_received(session, frame);
 }
 
@@ -5487,16 +5163,6 @@ static int session_process_origin_frame(nghttp2_session *session) {
   return nghttp2_session_on_origin_received(session, frame);
 }
 
-static int session_process_fake_request_frame(nghttp2_session *session) {
-  nghttp2_inbound_frame *iframe = &session->iframe;
-  nghttp2_frame *frame = &iframe->frame;
-
-  nghttp2_frame_unpack_fake_request_payload(
-      &frame->ext, iframe->sbuf.pos);
-
-  return nghttp2_session_on_fake_request_received(session, frame);
-}
-
 static int session_process_extension_frame(nghttp2_session *session) {
   int rv;
   nghttp2_inbound_frame *iframe = &session->iframe;
@@ -5513,6 +5179,15 @@ static int session_process_extension_frame(nghttp2_session *session) {
   }
 
   return session_call_on_frame_received(session, frame);
+}
+
+static int session_process_padding_frame(nghttp2_session *session) {
+  nghttp2_inbound_frame *iframe = &session->iframe;
+  nghttp2_frame *frame = &iframe->frame;
+
+  nghttp2_frame_unpack_padding_payload(&frame->ext, iframe->sbuf.pos);
+
+  return nghttp2_session_on_padding_received(session, frame);
 }
 
 int nghttp2_session_on_data_received(nghttp2_session *session,
@@ -6442,34 +6117,22 @@ ssize_t nghttp2_session_mem_recv(nghttp2_session *session, const uint8_t *in,
             iframe->state = NGHTTP2_IB_READ_ORIGIN_PAYLOAD;
 
             break;
-          case NGHTTP2_FAKE_REQUEST:
+          case NGHTTP2_PADDING:
             if ((session->builtin_recv_ext_types &
-                 NGHTTP2_TYPEMASK_FAKE_REQUEST) == 0) {
-              // 此处存在BUG，如果服务器直接忽略FAKE_REQUEST frame，那么相应的流不会在服务端创建，
-              // 而这时有可能会接收到该流上的WINDOW_UPDATW frame，违反协议规定。
-              busy = 1;
-              iframe->state = NGHTTP2_IB_IGN_PAYLOAD;
-              break;
-            }
-            DEBUGF("recv: FAKE_REQUEST\n");
-
-            iframe->frame.hd.flags &=
-                (NGHTTP2_FLAG_END_STREAM | NGHTTP2_FLAG_PRIORITY |
-                 NGHTTP2_FLAG_END_FAKE_REQUEST);
-            iframe->frame.ext.payload = &iframe->ext_frame_payload.fake_request;
-
-            if (!session->server) {
+                 NGHTTP2_TYPEMASK_PADDING) == 0) {
               busy = 1;
               iframe->state = NGHTTP2_IB_IGN_PAYLOAD;
               break;
             }
 
-            if (iframe->frame.hd.flags & NGHTTP2_FLAG_END_FAKE_REQUEST) {
-              /* Priority */
-              pri_fieldlen = nghttp2_frame_priority_len(iframe->frame.hd.flags);
+            DEBUGF("recv: PADDING\n");
 
+            iframe->frame.hd.flags &= NGHTTP2_FLAG_PADDING_REQUEST;
+            iframe->frame.ext.payload = &iframe->ext_frame_payload.padding;
+
+            if (iframe->frame.hd.flags & NGHTTP2_FLAG_PADDING_REQUEST) {
               /* Expected length */
-              if (iframe->payloadleft < 2 + pri_fieldlen) {
+              if (iframe->payloadleft < 4) {
                 busy = 1;
                 iframe->state = NGHTTP2_IB_FRAME_SIZE_ERROR;
                 break;
@@ -6478,51 +6141,9 @@ ssize_t nghttp2_session_mem_recv(nghttp2_session *session, const uint8_t *in,
               busy = 1;
 
               iframe->state = NGHTTP2_IB_READ_NBYTE;
-              inbound_frame_set_mark(iframe, 2 + pri_fieldlen);
+              inbound_frame_set_mark(iframe, 4);
 
               break;
-            }
-
-            busy = 1;
-            iframe->state = NGHTTP2_IB_IGN_PAYLOAD;
-            break;
-          case NGHTTP2_FAKE_RESPONSE:
-            if ((session->builtin_recv_ext_types & NGHTTP2_TYPEMASK_FAKE_RESPONSE) == 0) {
-              busy = 1;
-              iframe->state = NGHTTP2_IB_IGN_PAYLOAD;
-              break;
-            }
-
-            DEBUGF("recv: FAKE_RESPONSE\n");
-
-            iframe->frame.hd.flags &= NGHTTP2_FLAG_END_STREAM;
-            iframe->frame.ext.payload = &iframe->ext_frame_payload.fake_response;
-            /* only server can receive FAKE_RESPONSE frame */
-            assert(session->server);
-
-            rv = nghttp2_session_on_fake_response_received(session, &iframe->frame);
-            if (nghttp2_is_fatal(rv)) {
-              return rv;
-            }
-
-            busy = 1;
-            iframe->state = NGHTTP2_IB_IGN_PAYLOAD;
-            break;
-          case NGHTTP2_DUMMY:
-            if ((session->builtin_recv_ext_types &
-                 NGHTTP2_TYPEMASK_DUMMY) == 0) {
-              busy = 1;
-              iframe->state = NGHTTP2_IB_IGN_PAYLOAD;
-              break;
-            }
-
-            DEBUGF("recv: DUMMY\n");
-
-            iframe->frame.ext.payload = &iframe->ext_frame_payload.dummy;
-
-            rv = nghttp2_session_on_dummy_received(session, &iframe->frame);
-            if (nghttp2_is_fatal(rv)) {
-              return rv;
             }
 
             busy = 1;
@@ -6797,8 +6418,8 @@ ssize_t nghttp2_session_mem_recv(nghttp2_session *session, const uint8_t *in,
 
         break;
       }
-      case NGHTTP2_FAKE_REQUEST: {
-        rv = session_process_fake_request_frame(session);
+      case NGHTTP2_PADDING: {
+        rv = session_process_padding_frame(session);
         if (nghttp2_is_fatal(rv)) {
           return rv;
         }
@@ -6956,9 +6577,8 @@ ssize_t nghttp2_session_mem_recv(nghttp2_session *session, const uint8_t *in,
         /* Mark inflater bad so that we won't perform further decoding */
         session->hd_inflater.ctx.bad = 1;
         break;
-      case NGHTTP2_FAKE_REQUEST:
-      case NGHTTP2_FAKE_RESPONSE:
-        DEBUGF("recv: skip dummy=%zu\n", readlen);
+      case NGHTTP2_PADDING:
+        DEBUGF("recv: skip padding=%zu\n", readlen);
         break;
       default:
         break;
@@ -7767,122 +7387,16 @@ int nghttp2_session_add_settings(nghttp2_session *session, uint8_t flags,
   return 0;
 }
 
-int nghttp2_session_add_fake_request(nghttp2_session *session, uint8_t flags,
-                                     int32_t stream_id,
-                                     const nghttp2_priority_spec *pri_spec,
-                                     uint16_t expected_len,
-                                     uint16_t dummy_len) {
-  nghttp2_mem *mem;
+int nghttp2_session_add_padding(nghttp2_session *session, uint8_t flags,
+                                size_t expected_len, size_t padding_len) {
+  int rv;
   nghttp2_outbound_item *item;
   nghttp2_frame *frame;
-  nghttp2_ext_fake_request *fake_request;
-  int rv;
-
-  mem = &session->mem;
-
-  /* Check stream ID. */
-  if (stream_id == -1) {
-    if (session->server) {
-      return NGHTTP2_ERR_PROTO;
-    }
-
-    if (session->next_stream_id > INT32_MAX) {
-      return NGHTTP2_ERR_STREAM_ID_NOT_AVAILABLE;
-    }
-
-    stream_id = (int32_t)session->next_stream_id;
-    session->next_stream_id += 2;
-  } else if (stream_id <= 0) {
-    return NGHTTP2_ERR_INVALID_ARGUMENT;
-  }
+  nghttp2_mem *mem;
+  nghttp2_ext_padding *padding;
 
   /* Check flags. */
-  flags &= (NGHTTP2_FLAG_END_STREAM | NGHTTP2_FLAG_END_FAKE_REQUEST);
-
-  if (pri_spec && !nghttp2_priority_spec_check_default(pri_spec)) {
-    flags |= NGHTTP2_FLAG_PRIORITY;
-  } else {
-    pri_spec = NULL;
-  }
-
-  item = nghttp2_mem_malloc(mem, sizeof(nghttp2_outbound_item));
-  if (item == NULL) {
-    rv = NGHTTP2_ERR_NOMEM;
-    return rv;
-  }
-
-  nghttp2_outbound_item_init(item);
-
-  item->aux_data.ext.builtin = 1;
-
-  fake_request = &item->ext_frame_payload.fake_request;
-
-  frame = &item->frame;
-  frame->ext.payload = fake_request;
-
-  nghttp2_frame_fake_request_init(&frame->ext, flags, stream_id, pri_spec,
-                                      expected_len, dummy_len);
-
-  rv = nghttp2_session_add_item(session, item);
-  if (rv != 0) {
-    nghttp2_frame_fake_request_free(&frame->ext);
-    nghttp2_mem_free(mem, item);
-
-    return rv;
-  }
-
-  return 0;
-}
-
-int nghttp2_session_add_fake_response(nghttp2_session *session,
-                                      int32_t stream_id,
-                                      uint16_t expected_response_length) {
-  int rv;
-  nghttp2_outbound_item *item;
-  nghttp2_frame *frame;
-  nghttp2_mem *mem;
-  nghttp2_ext_fake_response *fake_response;
-  
-  /* Check client or server session. */
-  if (!session->server) {
-    return NGHTTP2_ERR_PROTO;
-  }
-
-  mem = &session->mem;
-  item = nghttp2_mem_malloc(mem, sizeof(nghttp2_outbound_item));
-  if (item == NULL) {
-    return NGHTTP2_ERR_NOMEM;
-  }
-  nghttp2_outbound_item_init(item);
-  item->aux_data.ext.builtin = 1;
-  item->aux_data.ext.fake_response_eof = 0;
-  item->aux_data.ext.fake_response_payload_len = expected_response_length;
-  fake_response = &item->ext_frame_payload.fake_response;
-  frame = &item->frame;
-  frame->ext.payload = fake_response;
-
-  nghttp2_frame_fake_response_init(&frame->ext, stream_id, expected_response_length);
-
-  rv = nghttp2_session_add_item(session, item);
-
-  if (rv != 0) {
-    nghttp2_frame_fake_response_free(&frame->ext);
-    nghttp2_mem_free(mem, item);
-    return rv;
-  }
-  return 0;
-}
-
-int nghttp2_session_add_dummy(nghttp2_session *session,
-                                      uint16_t expected_response_length) {
-  int rv;
-  nghttp2_outbound_item *item;
-  nghttp2_frame *frame;
-  nghttp2_mem *mem;
-  nghttp2_ext_dummy *dummy;
-
-  if (expected_response_length > NGHTTP2_MAX_PAYLOADLEN)
-    return NGHTTP2_ERR_INVALID_ARGUMENT;
+  flags &= NGHTTP2_FLAG_PADDING_REQUEST;
 
   mem = &session->mem;
   item = nghttp2_mem_malloc(mem, sizeof(nghttp2_outbound_item));
@@ -7891,16 +7405,16 @@ int nghttp2_session_add_dummy(nghttp2_session *session,
 
   nghttp2_outbound_item_init(item);
   item->aux_data.ext.builtin = 1;
-  dummy = &item->ext_frame_payload.dummy;
+  padding = &item->ext_frame_payload.padding;
   frame = &item->frame;
-  frame->ext.payload = dummy;
+  frame->ext.payload = padding;
 
-  nghttp2_frame_dummy_init(&frame->ext, expected_response_length);
+  nghttp2_frame_padding_init(&frame->ext, flags, expected_len, padding_len);
 
   rv = nghttp2_session_add_item(session, item);
 
   if (rv != 0) {
-    nghttp2_frame_dummy_free(&frame->ext);
+    nghttp2_frame_padding_free(&frame->ext);
     nghttp2_mem_free(mem, item);
     return rv;
   }
@@ -8004,8 +7518,8 @@ int nghttp2_session_pack_data(nghttp2_session *session, nghttp2_bufs *bufs,
   if (data_flags & NGHTTP2_DATA_FLAG_NO_COPY) {
     if (session->local_defense_enabled) {
       /* by h1994st */
-      if (session->callbacks.send_data_with_dummy_callback == NULL) {
-        DEBUGF("NGHTTP2_DATA_FLAG_NO_COPY requires send_data_with_dummy_callback set\n");
+      if (session->callbacks.send_data_with_padding_callback == NULL) {
+        DEBUGF("NGHTTP2_DATA_FLAG_NO_COPY requires send_data_with_padding_callback set\n");
 
         return NGHTTP2_ERR_CALLBACK_FAILURE;
       }

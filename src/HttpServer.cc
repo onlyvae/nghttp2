@@ -265,15 +265,11 @@ public:
           option_, config_->encoder_header_table_size);
     }
 
-    if (config_->defense) {
+    if (config_->defense)
       nghttp2_option_set_outbound_restriction(
             option_, config->min_outbound_length, config->max_outbound_length);
 
-      // Four extension frames  -- by h1994st
-      nghttp2_option_set_builtin_recv_extension_type(option_, NGHTTP2_DUMMY);
-      nghttp2_option_set_builtin_recv_extension_type(option_, NGHTTP2_FAKE_REQUEST);
-      nghttp2_option_set_builtin_recv_extension_type(option_, NGHTTP2_FAKE_RESPONSE);
-    }
+    nghttp2_option_set_builtin_recv_extension_type(option_, NGHTTP2_PADDING);
 
     ev_timer_init(&release_fd_timer_, release_fd_cb, 0., RELEASE_FD_TIMEOUT);
     release_fd_timer_.data = this;
@@ -632,7 +628,7 @@ int Http2Handler::fill_wb() {
     const uint8_t *data;
     // DATA frame will not be obtained here if NGHTTP2_DATA_FLAG_NO_COPY is set.
     auto datalen = nghttp2_session_mem_send(session_, &data);
-    std::cerr << "\x1b[31m[WFP-DEFENSE]\x1b[0m get " << datalen << " data from lib" << std::endl;
+    std::cerr << "\x1b[32m[WFP-DEFENSE]\x1b[0m get " << datalen << " data from lib" << std::endl;
 
     if (datalen < 0) {
       std::cerr << "nghttp2_session_mem_send() returned error: "
@@ -817,7 +813,7 @@ int Http2Handler::write_tls() {
 
   for (;;) {
     if (wb_.rleft() > 0) {
-      std::cerr << "\x1b[31m[WFP-DEFENSE]\x1b[0m SSL_write expected: " << wb_.rleft();
+      std::cerr << "\x1b[32m[WFP-DEFENSE]\x1b[0m SSL_write expected: " << wb_.rleft();
       auto rv = SSL_write(ssl_, wb_.pos, wb_.rleft());
       std::cerr << ", actual: " << rv << std::endl;
 
@@ -1451,7 +1447,7 @@ void prepare_response(Stream *stream, Http2Handler *hd,
       auto length = file_ent->length;
       std::array<uint8_t, 8_k> buf;
 
-      std::cerr << "\x1b[31m[WFP-DEFENSE]\x1b[0m auto push enabled" << std::endl;
+      std::cerr << "\x1b[32m[WFP-DEFENSE]\x1b[0m auto push enabled" << std::endl;
 
       while (length) {
         ssize_t nread;
@@ -1522,11 +1518,11 @@ void update_html_parser(Http2Handler *hd, Stream *stream, const uint8_t *data,
       // Submit PUSH_PROMISE frame
       auto push_path = make_string_ref(
           stream->balloc, util::get_uri_field(uri.c_str(), u, UF_PATH));
-      std::cerr << "\x1b[31m[WFP-DEFENSE]\x1b[0m push (" << res_type << ") " << uri << std::endl;
+      std::cerr << "\x1b[32m[WFP-DEFENSE]\x1b[0m push (" << res_type << ") " << uri << std::endl;
 
       hd->submit_push_promise(stream, push_path);
     }else
-      std::cerr << "\x1b[31m[WFP-DEFENSE]\x1b[0m skip (" << res_type << ") "<< uri << std::endl;
+      std::cerr << "\x1b[32m[WFP-DEFENSE]\x1b[0m skip (" << res_type << ") "<< uri << std::endl;
   }
   html_parser->clear_links();
 }
@@ -1826,17 +1822,17 @@ int send_data_callback(nghttp2_session *session, nghttp2_frame *frame,
 } // namespace
 
 namespace {
-int send_data_with_dummy_callback(nghttp2_session *session,
+int send_data_with_padding_callback(nghttp2_session *session,
                                   nghttp2_frame *frame, const uint8_t *framehd,
                                   size_t length, nghttp2_data_source *source,
-                                  const uint8_t *dummy, size_t dummy_len,
+                                  const uint8_t *padding, size_t padding_len,
                                   void *user_data) {
   auto hd = static_cast<Http2Handler *>(user_data);
   auto wb = hd->get_wb();
   auto padlen = frame->data.padlen;
   auto stream = hd->get_stream(frame->hd.stream_id);
 
-  if (wb->wleft() < 9 + length + padlen + dummy_len) {
+  if (wb->wleft() < 9 + length + padlen + padding_len) {
     return NGHTTP2_ERR_WOULDBLOCK;
   }
 
@@ -1873,10 +1869,10 @@ int send_data_with_dummy_callback(nghttp2_session *session,
     p += padlen - 1;
   }
 
-  // copy dummy
+  // copy padding
   // by h1994st
-  if (dummy_len) {
-    p = std::copy_n(dummy, dummy_len, p);
+  if (padding_len) {
+    p = std::copy_n(padding, padding_len, p);
   }
 
   wb->last = p;
@@ -1896,7 +1892,7 @@ ssize_t select_padding_callback(nghttp2_session *session,
     std::default_random_engine generator(seed);
     std::uniform_int_distribution<int> distribution(0, 255);
     auto random_padlen = distribution(generator);
-    std::cerr << "\x1b[31m[WFP-DEFENSE]\x1b[0m random padding length: " << random_padlen << std::endl;
+    std::cerr << "\x1b[32m[WFP-DEFENSE]\x1b[0m random padding length: " << random_padlen << std::endl;
     return std::min(max_payload, frame->hd.length + random_padlen);
   }
   return std::min(max_payload, frame->hd.length + hd->get_config()->padding);
@@ -1981,8 +1977,8 @@ void fill_callback(nghttp2_session_callbacks *callbacks, const Config *config) {
       callbacks, on_begin_headers_callback);
 
   if (config->defense) {
-    nghttp2_session_callbacks_set_send_data_with_dummy_callback(callbacks,
-                                                        send_data_with_dummy_callback);
+    nghttp2_session_callbacks_set_send_data_with_padding_callback(callbacks,
+                                                        send_data_with_padding_callback);
   } else {
     nghttp2_session_callbacks_set_send_data_callback(callbacks,
                                                      send_data_callback);

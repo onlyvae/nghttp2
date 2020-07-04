@@ -26,12 +26,12 @@
 
 #include <stdio.h>
 #include <stdlib.h>
-
+#include <time.h>
 #include "nghttp2_helper.h"
 #include "nghttp2_debug.h"
 #include "nghttp2_frame.h"
 
-#define RANDOM(min, max) ((rand() % (max - min + 1)) + min) // generate a random number in [min, max]
+#define RANDOM(min, max) (((size_t)rand() % (max - min + 1)) + min) // generate a random number in [min, max]
 
 void nghttp2_buf_init(nghttp2_buf *buf) {
   buf->begin = NULL;
@@ -162,7 +162,7 @@ int nghttp2_random_bufs_init(nghttp2_bufs *bufs, uint16_t min_chunk_length,
                              size_t offset, nghttp2_mem *mem) {
   int rv;
   nghttp2_buf_chain *chain;
-  srand(time(0));
+  srand((uint)time(NULL));
 
   if (chunk_keep == 0 || max_chunk_length < min_chunk_length ||
       min_chunk_length < offset) {
@@ -177,7 +177,7 @@ int nghttp2_random_bufs_init(nghttp2_bufs *bufs, uint16_t min_chunk_length,
   if (rv != 0) {
     return rv;
   }
-  DEBUGF("\x1b[31m[WFP-DEFENSE]\x1b[0m random buffer length %zu from [%zu, %zu]\n",
+  DEBUGF("\x1b[32m[WFP-DEFENSE]\x1b[0m random buffer length %zu from [%zu, %zu]\n",
          bufs->chunk_length, min_chunk_length, max_chunk_length);
   bufs->mem = mem;
   bufs->offset = offset;
@@ -356,7 +356,7 @@ static int bufs_alloc_chain(nghttp2_bufs *bufs) {
   if(bufs->defense){
     /* realloc random buffer length */
     bufs->chunk_length = RANDOM(bufs->min_chunk_length, bufs->max_chunk_length);
-    DEBUGF("\x1b[31m[WFP-DEFENSE]\x1b[0m random buffer length %zu from [%zu, %zu]\n",
+    DEBUGF("\x1b[32m[WFP-DEFENSE]\x1b[0m random buffer length %zu from [%zu, %zu]\n",
            bufs->chunk_length, bufs->min_chunk_length, bufs->max_chunk_length);
   }
   rv = buf_chain_new(&chain, bufs->chunk_length, bufs->mem);
@@ -563,7 +563,7 @@ void nghttp2_bufs_reset(nghttp2_bufs *bufs) {
     if (bufs->defense){
       /* realloc random buffer length */
       size_t new_size =  RANDOM(bufs->min_chunk_length, bufs->max_chunk_length);
-      DEBUGF("\x1b[31m[WFP-DEFENSE]\x1b[0m random buffer length %zu from [%zu, %zu]\n",
+      DEBUGF("\x1b[32m[WFP-DEFENSE]\x1b[0m random buffer length %zu from [%zu, %zu]\n",
              new_size, bufs->min_chunk_length, bufs->max_chunk_length);
       if (nghttp2_buf_cap(&ci->buf) >= new_size) {
         /* enough space, just move pointer */

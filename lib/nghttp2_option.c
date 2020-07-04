@@ -90,17 +90,9 @@ void nghttp2_option_set_builtin_recv_extension_type(nghttp2_option *option,
     option->opt_set_mask |= NGHTTP2_OPT_BUILTIN_RECV_EXT_TYPES;
     option->builtin_recv_ext_types |= NGHTTP2_TYPEMASK_ORIGIN;
     return;
-  case NGHTTP2_DUMMY:
+  case NGHTTP2_PADDING:
     option->opt_set_mask |= NGHTTP2_OPT_BUILTIN_RECV_EXT_TYPES;
-    option->builtin_recv_ext_types |= NGHTTP2_TYPEMASK_DUMMY;
-    return;
-  case NGHTTP2_FAKE_REQUEST:
-    option->opt_set_mask |= NGHTTP2_OPT_BUILTIN_RECV_EXT_TYPES;
-    option->builtin_recv_ext_types |= NGHTTP2_TYPEMASK_FAKE_REQUEST;
-    return;
-  case NGHTTP2_FAKE_RESPONSE:
-    option->opt_set_mask |= NGHTTP2_OPT_BUILTIN_RECV_EXT_TYPES;
-    option->builtin_recv_ext_types |= NGHTTP2_TYPEMASK_FAKE_RESPONSE;
+    option->builtin_recv_ext_types |= NGHTTP2_TYPEMASK_PADDING;
     return;
   default:
     return;

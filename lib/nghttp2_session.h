@@ -63,9 +63,7 @@ typedef enum {
   NGHTTP2_TYPEMASK_NONE = 0,
   NGHTTP2_TYPEMASK_ALTSVC = 1 << 0,
   NGHTTP2_TYPEMASK_ORIGIN = 1 << 1,
-  NGHTTP2_TYPEMASK_DUMMY = 1 << 2,
-  NGHTTP2_TYPEMASK_FAKE_REQUEST = 1 << 3,
-  NGHTTP2_TYPEMASK_FAKE_RESPONSE = 1 << 4
+  NGHTTP2_TYPEMASK_PADDING = 1 << 2,
 } nghttp2_typemask;
 
 typedef enum {
@@ -493,21 +491,10 @@ int nghttp2_session_add_settings(nghttp2_session *session, uint8_t flags,
                                  const nghttp2_settings_entry *iv, size_t niv);
 
 /*
- * Adds FAKE_REQUEST frame.
+ * Adds PADDING frame.
  */
-int nghttp2_session_add_fake_request(nghttp2_session *session, uint8_t flags,
-                                     int32_t stream_id,
-                                     const nghttp2_priority_spec *pri_spec,
-                                     uint16_t expected_len, uint16_t dummy_len);
-/*
- * Adds FAKE_RESPONSE frame.
-*/
-int nghttp2_session_add_fake_response(nghttp2_session *session, int32_t stream_id, uint16_t expected_response_length);
-
-/*
- * Adds DUMMY frame.
- */
-int nghttp2_session_add_dummy(nghttp2_session *session, uint16_t expected_response_length);
+int nghttp2_session_add_padding(nghttp2_session *session, uint8_t flags,
+                                size_t expected_len, size_t padding_len);
 
 /*
  * Creates new stream in |session| with stream ID |stream_id|,
@@ -806,21 +793,9 @@ int nghttp2_session_on_origin_received(nghttp2_session *session,
                                        nghttp2_frame *frame);
 
 /*
- * Called when FAKE_REQUEST is received.
+ * Called when PADDING is received.
  */
-int nghttp2_session_on_fake_request_received(nghttp2_session *session,
-                                       nghttp2_frame *frame);
-
-/*
- * Called when FAKE_RESPONSE is received.
- */
-int nghttp2_session_on_fake_response_received(nghttp2_session *session,
-                                                  nghttp2_frame *frame);
-
-/*
- * Called when DUMMY is received.
- */
-int nghttp2_session_on_dummy_received(nghttp2_session *session,
+int nghttp2_session_on_padding_received(nghttp2_session *session,
                                               nghttp2_frame *frame);
 /*
  * Called when DATA is received, assuming |frame| is properly

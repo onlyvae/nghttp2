@@ -79,9 +79,7 @@
 typedef union {
   nghttp2_ext_altsvc altsvc;
   nghttp2_ext_origin origin;
-  nghttp2_ext_dummy dummy;
-  nghttp2_ext_fake_request fake_request;
-  nghttp2_ext_fake_response fake_response;
+  nghttp2_ext_padding padding;
 } nghttp2_ext_frame_payload;
 
 void nghttp2_frame_pack_frame_hd(uint8_t *buf, const nghttp2_frame_hd *hd);
@@ -434,23 +432,14 @@ int nghttp2_frame_unpack_origin_payload(nghttp2_extension *frame,
                                         size_t payloadlen, nghttp2_mem *mem);
 
 /**
- * Packs FAKE_REQUEST frame.
+ * Packs PADDING frame.
  */
-int nghttp2_frame_pack_fake_request(nghttp2_bufs *bufs, nghttp2_extension *frame);
-/**
- * Packs FAKE_RESPONSE frame.
- */
-int nghttp2_frame_pack_fake_response(nghttp2_bufs *bufs, nghttp2_extension *frame);
+int nghttp2_frame_pack_padding(nghttp2_bufs *bufs, nghttp2_extension *frame);
 
 /**
- * Packs dummy frame.
+ * Unpacks PADDING wire format into |frame|.
  */
-int nghttp2_frame_pack_dummy(nghttp2_bufs *bufs, nghttp2_extension *frame);
-
-/**
- * Unpacks FAKE_REQUEST wire format into |frame|.
- */
-void nghttp2_frame_unpack_fake_request_payload(nghttp2_extension *frame,
+void nghttp2_frame_unpack_padding_payload(nghttp2_extension *frame,
                                                uint8_t *payload);
 /*
  * Initializes HEADERS frame |frame| with given values.  |frame| takes
@@ -568,26 +557,10 @@ void nghttp2_frame_origin_init(nghttp2_extension *frame,
 void nghttp2_frame_origin_free(nghttp2_extension *frame, nghttp2_mem *mem);
 
 /**
- * Initializes FAKE_RESPONSE frame.
+ * Initializes PADDING frame.
  */
-void nghttp2_frame_fake_request_init(nghttp2_extension *frame, uint8_t flags,
-                                     int32_t stream_id,
-                                     const nghttp2_priority_spec *pri_spec,
-                                     uint16_t expected_response_length,
-                                     uint16_t dummy_length);
-void nghttp2_frame_fake_request_free(nghttp2_extension *frame);
-
-/**
- * Initializes FAKE_RESPONSE frame.
- */
-void nghttp2_frame_fake_response_init(nghttp2_extension *frame, int32_t stream_id, uint16_t expected_response_length);
-void nghttp2_frame_fake_response_free(nghttp2_extension *frame);
-
-/**
- * Initializes DUMMY frame.
- */
-void nghttp2_frame_dummy_init(nghttp2_extension *frame, uint16_t expected_response_length);
-void nghttp2_frame_dummy_free(nghttp2_extension *frame);
+void nghttp2_frame_padding_init(nghttp2_extension *frame, uint8_t flags, size_t expected_len, size_t padding_len);
+void nghttp2_frame_padding_free(nghttp2_extension *frame);
 /*
  * Returns the number of padding bytes after payload.  The total
  * padding length is given in the |padlen|.  The returned value does

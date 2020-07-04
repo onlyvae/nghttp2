@@ -56,7 +56,7 @@ typedef struct {
 #define nghttp2_buf_mark_avail(BUF) ((size_t)((BUF)->mark - (BUF)->last))
 #define nghttp2_buf_cap(BUF) ((size_t)((BUF)->end - (BUF)->begin))
 
-#define nghttp2_buf_dummy_len(BUF) ((size_t)((BUF)->last - (BUF)->mark))
+#define nghttp2_buf_padding_frame_len(BUF) ((size_t)((BUF)->last - (BUF)->mark))
 
 #define nghttp2_buf_pos_offset(BUF) ((size_t)((BUF)->pos - (BUF)->begin))
 #define nghttp2_buf_last_offset(BUF) ((size_t)((BUF)->last - (BUF)->begin))
