@@ -390,6 +390,7 @@ void copy_headers_to_nva_internal(std::vector<nghttp2_nv> &nva,
     case HD_TE:
     case HD_TRANSFER_ENCODING:
     case HD_UPGRADE:
+    case HD_ACCEPT_ENCODING:
       continue;
     case HD_EARLY_DATA:
       if (flags & HDOP_STRIP_EARLY_DATA) {
@@ -499,6 +500,7 @@ void build_http1_headers_from_headers(DefaultMemchunks *buf,
     case HD_PROXY_CONNECTION:
     case HD_SERVER:
     case HD_UPGRADE:
+    case HD_ACCEPT_ENCODING:
       continue;
     case HD_EARLY_DATA:
       if (flags & HDOP_STRIP_EARLY_DATA) {

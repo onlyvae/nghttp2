@@ -46,6 +46,7 @@
 #include "base64.h"
 #include "app_helper.h"
 #include "template.h"
+#include "HtmlParser.h" // For auto server push
 
 using namespace nghttp2;
 
@@ -315,6 +316,11 @@ int Http2Upstream::on_request_headers(Downstream *downstream,
   if (downstream->get_response_state() == DownstreamState::MSG_COMPLETE) {
     return 0;
   }
+
+  // We need remove Accept-Encoding header before request send to down stream, 
+  // otherwise we can not exract links without decoding html content.
+  // auto accpet_encoding =  req.fs.header(http2::HD_ACCEPT_ENCODING);
+  // accpet_encoding->value = StringRef::from_lit("");
 
   auto &nva = req.fs.headers();
 
@@ -1018,7 +1024,8 @@ Http2Upstream::Http2Upstream(ClientHandler *handler)
       handler_(handler),
       session_(nullptr),
       max_buffer_size_(MAX_BUFFER_SIZE),
-      num_requests_(0) {
+      num_requests_(0),
+      html_parser_(nullptr) {
   int rv;
 
   auto config = get_config();
@@ -1132,6 +1139,7 @@ Http2Upstream::~Http2Upstream() {
   ev_prepare_stop(handler_->get_loop(), &prep_);
   ev_timer_stop(handler_->get_loop(), &shutdown_timer_);
   ev_timer_stop(handler_->get_loop(), &settings_timer_);
+  delete html_parser_; // For auto server push -- by h1994st
 }
 
 int Http2Upstream::on_read() {
@@ -1757,6 +1765,12 @@ int Http2Upstream::on_downstream_header_complete(Downstream *downstream) {
     return 0;
   }
 
+  // For auto server push -- by h1994st
+  if (!this->get_html_parser()) {
+    this->init_html_parser(req.scheme.str() + "://" +
+                         req.authority.str());
+  }
+
   auto striphd_flags = http2::HDOP_STRIP_ALL & ~http2::HDOP_STRIP_VIA;
   StringRef response_status;
 
@@ -1867,12 +1881,85 @@ int Http2Upstream::on_downstream_header_complete(Downstream *downstream) {
   return 0;
 }
 
+// For auto server push -- by h1994st
+HtmlParser *Http2Upstream::get_html_parser() const { return html_parser_; }
+
+// For auto server push -- by h1994st
+void Http2Upstream::init_html_parser(const std::string &base_uri) {
+  html_parser_ = new HtmlParser(base_uri);
+}
+
+// For auto server push -- by h1994st
+int Http2Upstream::update_html_parser(const uint8_t *data, size_t len, int fin) {
+  if (!html_parser_) {
+    return 0;
+  }
+  return html_parser_->parse_chunk(reinterpret_cast<const char *>(data), len,
+                                   fin);
+}
+
+// For auto server push -- by h1994st
+namespace {
+std::string strip_fragment(const char *raw_uri) {
+  const char *end;
+  for (end = raw_uri; *end && *end != '#'; ++end)
+    ;
+  size_t len = end - raw_uri;
+  return std::string(raw_uri, len);
+}
+} // namespace
+
+unsigned seed = std::chrono::system_clock::now().time_since_epoch().count();
+std::default_random_engine generator(seed);
+std::bernoulli_distribution distribution(0.5);
+
 // WARNING: Never call directly or indirectly nghttp2_session_send or
 // nghttp2_session_recv. These calls may delete downstream.
 int Http2Upstream::on_downstream_body(Downstream *downstream,
                                       const uint8_t *data, size_t len,
                                       bool flush) {
   auto body = downstream->get_response_buf();
+
+  // for auto push
+  auto config = get_config();
+  if(config->http2.auto_push){
+    auto &resp = downstream->response();
+    auto content_type = resp.fs.header(http2::HD_CONTENT_TYPE);
+    auto content_length = resp.fs.header(http2::HD_CONTENT_LENGTH);
+    if (content_type->value == StringRef::from_lit("text/html")) {
+      bool fin = resp.recv_body_length == util::parse_uint(content_length->value);
+      this->update_html_parser(data, len, fin);
+
+      auto html_parser = this->get_html_parser();
+      for (auto &p : html_parser->get_links()) {
+        auto uri = strip_fragment(p.first.c_str());
+        auto res_type = p.second;
+        auto should_push = distribution(generator);
+
+        DLOG(INFO, downstream) << "\x1b[32m[WFP-DEFENSE]\x1b[0m parsed link (" << uri <<")";
+        if (should_push) {
+          // Submit PUSH_PROMISE frame
+          int rv = this->initiate_push(downstream, StringRef(uri));
+          if (rv == 0) {
+            DLOG(INFO, downstream)
+                << "\x1b[32m[WFP-DEFENSE]\x1b[0m link (" << uri << ") pushed";
+          } else {
+            DLOG(INFO, downstream)
+                << "\x1b[32m[WFP-DEFENSE]\x1b[0m push link (" << uri << ") failed";
+          }
+        } else {
+          DLOG(INFO, downstream)
+              << "\x1b[32m[WFP-DEFENSE]\x1b[0m skip link (" << uri << ")";
+        }
+      }
+      html_parser->clear_links();
+    }
+  }
+  if (LOG_ENABLED(INFO)) {
+    DLOG(INFO, downstream) << "HTTP response body received " << body->rleft()
+                           << " + " << len;
+  }
+
   body->append(data, len);
 
   if (flush) {
@@ -2178,7 +2265,7 @@ int Http2Upstream::submit_push_promise(const StringRef &scheme,
 
   // juse use "GET" for now
   nva.push_back(http2::make_nv_ll(":method", "GET"));
-  nva.push_back(http2::make_nv_ls_nocopy(":scheme", scheme));
+  nva.push_back(http2::make_nv_ll(":scheme", "https")); // 不知道为什么scheme字段会压缩错误
   nva.push_back(http2::make_nv_ls_nocopy(":path", path));
   nva.push_back(http2::make_nv_ls_nocopy(":authority", authority));
 

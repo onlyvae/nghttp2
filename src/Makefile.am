@@ -101,6 +101,7 @@ h2load_SOURCES = util.cc util.h \
 NGHTTPX_SRCS = \
 	util.cc util.h http2.cc http2.h timegm.c timegm.h base64.h \
 	app_helper.cc app_helper.h \
+	${HTML_PARSER_OBJECTS} ${HTML_PARSER_HFILES} \
 	tls.cc tls.h \
 	shrpx_config.cc shrpx_config.h \
 	shrpx_error.h \

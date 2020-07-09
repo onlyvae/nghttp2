@@ -114,6 +114,9 @@ if(ENABLE_APP)
     shrpx_dns_tracker.cc
     xsi_strerror.c
   )
+  if(HAVE_LIBXML2)
+    list(APPEND NGHTTPX_SRCS HtmlParser.cc)
+  endif()
   if(HAVE_MRUBY)
     list(APPEND NGHTTPX_SRCS
       shrpx_mruby.cc

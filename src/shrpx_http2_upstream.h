@@ -37,6 +37,8 @@
 #include "shrpx_downstream_queue.h"
 #include "memchunk.h"
 #include "buffer.h"
+#include "url-parser/url_parser.h"  // For server push
+#include "HtmlParser.h"             // For auto server push
 
 using namespace nghttp2;
 
@@ -128,6 +130,11 @@ public:
 
   int redirect_to_https(Downstream *downstream);
 
+  // For auto server push -- by h1994st
+  HtmlParser *get_html_parser() const;
+  void init_html_parser(const std::string &base_uri);
+  int update_html_parser(const uint8_t *data, size_t len, int fin);
+
 private:
   DefaultMemchunks wb_;
   std::unique_ptr<HttpsUpstream> pre_upstream_;
@@ -141,6 +148,7 @@ private:
   // The number of requests seen so far.
   size_t num_requests_;
   bool flow_control_;
+  HtmlParser *html_parser_; // For auto server push -- by h1994st
 };
 
 nghttp2_session_callbacks *create_http2_upstream_callbacks();

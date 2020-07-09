@@ -2491,6 +2491,8 @@ HTTP/2:
               HTTP/2 in default mode.  In  this case, server push from
               backend session is relayed  to frontend, and server push
               via Link header field is also supported.
+  --auto-push
+              Enable HTTP/2 auto server push.
   --frontend-http2-optimize-write-buffer-size
               (Experimental) Enable write  buffer size optimization in
               frontend HTTP/2 TLS  connection.  This optimization aims
@@ -3520,6 +3522,7 @@ int main(int argc, char **argv) {
         {SHRPX_OPT_TLS13_CLIENT_CIPHERS.c_str(), required_argument, &flag, 165},
         {SHRPX_OPT_NO_STRIP_INCOMING_EARLY_DATA.c_str(), no_argument, &flag,
          166},
+        {SHRPX_OPT_AUTO_PUSH.c_str(), no_argument, &flag, 167},
         {nullptr, 0, nullptr, 0}};
 
     int option_index = 0;
@@ -4311,6 +4314,11 @@ int main(int argc, char **argv) {
       case 166:
         // --no-strip-incoming-early-data
         cmdcfgs.emplace_back(SHRPX_OPT_NO_STRIP_INCOMING_EARLY_DATA,
+                             StringRef::from_lit("yes"));
+        break;
+      case 167:
+        // --no-server-push
+        cmdcfgs.emplace_back(SHRPX_OPT_AUTO_PUSH,
                              StringRef::from_lit("yes"));
         break;
       default:

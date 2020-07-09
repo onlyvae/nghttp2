@@ -1742,6 +1742,11 @@ int option_lookup_token(const char *name, size_t namelen) {
         return SHRPX_OPTID_LOG_LEVEL;
       }
       break;
+    case 'h':
+      if (util::strieq_l("auto-pus", name, 8)) {
+        return SHRPX_OPTID_AUTO_PUSH;
+      }
+      break;
     }
     break;
   case 10:
@@ -3253,6 +3258,10 @@ int parse_config(Config *config, int optid, const StringRef &opt,
 
   case SHRPX_OPTID_NO_SERVER_PUSH:
     config->http2.no_server_push = util::strieq_l("yes", optarg);
+
+    return 0;
+  case SHRPX_OPTID_AUTO_PUSH:
+    config->http2.auto_push = util::strieq_l("yes", optarg);
 
     return 0;
   case SHRPX_OPTID_BACKEND_HTTP2_CONNECTIONS_PER_WORKER:

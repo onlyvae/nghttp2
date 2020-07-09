@@ -198,6 +198,7 @@ constexpr auto SHRPX_OPT_BACKEND_REQUEST_BUFFER =
 constexpr auto SHRPX_OPT_BACKEND_RESPONSE_BUFFER =
     StringRef::from_lit("backend-response-buffer");
 constexpr auto SHRPX_OPT_NO_SERVER_PUSH = StringRef::from_lit("no-server-push");
+constexpr auto SHRPX_OPT_AUTO_PUSH = StringRef::from_lit("auto-push");
 constexpr auto SHRPX_OPT_BACKEND_HTTP2_CONNECTIONS_PER_WORKER =
     StringRef::from_lit("backend-http2-connections-per-worker");
 constexpr auto SHRPX_OPT_FETCH_OCSP_RESPONSE_FILE =
@@ -791,6 +792,7 @@ struct Http2Config {
   } timeout;
   bool no_cookie_crumbling;
   bool no_server_push;
+  bool auto_push;
 };
 
 struct LoggingConfig {
@@ -1125,6 +1127,7 @@ enum {
   SHRPX_OPTID_NO_LOCATION_REWRITE,
   SHRPX_OPTID_NO_OCSP,
   SHRPX_OPTID_NO_SERVER_PUSH,
+  SHRPX_OPTID_AUTO_PUSH,
   SHRPX_OPTID_NO_SERVER_REWRITE,
   SHRPX_OPTID_NO_STRIP_INCOMING_EARLY_DATA,
   SHRPX_OPTID_NO_STRIP_INCOMING_X_FORWARDED_PROTO,
