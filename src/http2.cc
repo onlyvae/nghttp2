@@ -391,6 +391,7 @@ void copy_headers_to_nva_internal(std::vector<nghttp2_nv> &nva,
     case HD_TRANSFER_ENCODING:
     case HD_UPGRADE:
     case HD_ACCEPT_ENCODING:
+    case HD_CONTENT_LENGTH: // remove content length because we need to replace the content
       continue;
     case HD_EARLY_DATA:
       if (flags & HDOP_STRIP_EARLY_DATA) {

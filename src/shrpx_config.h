@@ -199,6 +199,7 @@ constexpr auto SHRPX_OPT_BACKEND_RESPONSE_BUFFER =
     StringRef::from_lit("backend-response-buffer");
 constexpr auto SHRPX_OPT_NO_SERVER_PUSH = StringRef::from_lit("no-server-push");
 constexpr auto SHRPX_OPT_AUTO_PUSH = StringRef::from_lit("auto-push");
+constexpr auto SHRPX_OPT_MIRROR_MODE = StringRef::from_lit("mirror-mode");
 constexpr auto SHRPX_OPT_BACKEND_HTTP2_CONNECTIONS_PER_WORKER =
     StringRef::from_lit("backend-http2-connections-per-worker");
 constexpr auto SHRPX_OPT_FETCH_OCSP_RESPONSE_FILE =
@@ -1001,6 +1002,7 @@ struct Config {
   bool verbose;
   bool daemon;
   bool http2_proxy;
+  bool mirror_mode;
   // Run nghttpx in single process mode.  With this mode, signal
   // handling is omitted.
   bool single_process;
@@ -1111,6 +1113,7 @@ enum {
   SHRPX_OPTID_HTTP2_MAX_CONCURRENT_STREAMS,
   SHRPX_OPTID_HTTP2_NO_COOKIE_CRUMBLING,
   SHRPX_OPTID_HTTP2_PROXY,
+  SHRPX_OPTID_MIRROR_MODE,
   SHRPX_OPTID_IGNORE_PER_PATTERN_MRUBY_ERROR,
   SHRPX_OPTID_INCLUDE,
   SHRPX_OPTID_INSECURE,

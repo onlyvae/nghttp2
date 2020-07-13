@@ -317,10 +317,6 @@ int Http2Upstream::on_request_headers(Downstream *downstream,
     return 0;
   }
 
-  // We need remove Accept-Encoding header before request send to down stream, 
-  // otherwise we can not exract links without decoding html content.
-  // auto accpet_encoding =  req.fs.header(http2::HD_ACCEPT_ENCODING);
-  // accpet_encoding->value = StringRef::from_lit("");
 
   auto &nva = req.fs.headers();
 
@@ -397,8 +393,27 @@ int Http2Upstream::on_request_headers(Downstream *downstream,
                faddr->alt_mode == UpstreamAltMode::NONE) {
       req.path = path->value;
     } else {
-      req.path = http2::rewrite_clean_path(downstream->get_block_allocator(),
-                                           path->value);
+      // extract the real request url
+      std::string pathString = path->value.str();
+      if (config->mirror_mode && pathString.find("/?real-req=") !=
+          std::string::npos) {
+        std::string url = pathString.substr(11);
+        DLOG(INFO, downstream)
+            << "\x1b[32m[WFP-DEFENSE]\x1b[0m extracted real rquest (" << url
+            << ")";
+        http_parser_url u{};
+        auto &balloc = downstream->get_block_allocator();
+        if (!http_parser_parse_url(url.c_str(), url.size(), 0, &u)) {
+          req.scheme = make_string_ref(
+              balloc, util::get_uri_field(url.c_str(), u, UF_SCHEMA));
+          req.authority = make_string_ref(
+              balloc, util::get_uri_field(url.c_str(), u, UF_HOST));
+          req.path = make_string_ref(
+              balloc, util::get_uri_field(url.c_str(), u, UF_PATH));
+        }
+      } else
+        req.path = http2::rewrite_clean_path(
+            downstream->get_block_allocator(), path->value);
     }
   }
 
@@ -733,6 +748,57 @@ int on_frame_send_callback(nghttp2_session *session, const nghttp2_frame *frame,
 
     auto &promised_balloc = promised_downstream->get_block_allocator();
 
+    bool exist_real_req = false;
+    if(get_config()->mirror_mode){
+      // replace the request information with the real request in query string
+      for (size_t i = 0; i < frame->push_promise.nvlen; ++i){
+        auto &nv = frame->push_promise.nva[i];
+        auto token = http2::lookup_token(nv.name, nv.namelen);
+        if (token != http2::HD__PATH) {
+          continue;
+        } else {
+          auto value =
+              make_string_ref(promised_balloc, StringRef{nv.value, nv.valuelen});
+          // extract the real request url
+          std::string pathString = value.str();
+          if (pathString.find("/?real-req=") != std::string::npos) {
+            std::string url = pathString.substr(11);
+            DLOG(INFO, upstream)
+                << "\x1b[32m[WFP-DEFENSE]\x1b[0m extracted real rquest (" << url
+                << ")";
+            http_parser_url u{};
+            if (!http_parser_parse_url(url.c_str(), url.size(), 0, &u)) {
+              exist_real_req = true;
+              req.method = HTTP_GET;
+              req.fs.add_header_token(
+                  StringRef::from_lit(":method"), StringRef::from_lit(":GET"),
+                  nv.flags & NGHTTP2_NV_FLAG_NO_INDEX, http2::HD__METHOD);
+
+              req.scheme =
+                  make_string_ref(promised_balloc,
+                                  util::get_uri_field(url.c_str(), u, UF_SCHEMA));
+              req.fs.add_header_token(
+                  StringRef::from_lit(":scheme"), req.scheme,
+                  nv.flags & NGHTTP2_NV_FLAG_NO_INDEX, http2::HD__SCHEME);
+
+              req.authority = make_string_ref(
+                  promised_balloc, util::get_uri_field(url.c_str(), u, UF_HOST));
+              req.fs.add_header_token(
+                  StringRef::from_lit(":authority"), req.authority,
+                  nv.flags & NGHTTP2_NV_FLAG_NO_INDEX, http2::HD__AUTHORITY);
+
+              req.path = make_string_ref(
+                  promised_balloc, util::get_uri_field(url.c_str(), u, UF_PATH));
+              req.fs.add_header_token(
+                  StringRef::from_lit(":path"), req.path,
+                  nv.flags & NGHTTP2_NV_FLAG_NO_INDEX, http2::HD__PATH);
+            }
+          }
+          break;
+        }
+      }
+    }
+
     for (size_t i = 0; i < frame->push_promise.nvlen; ++i) {
       auto &nv = frame->push_promise.nva[i];
 
@@ -742,19 +808,21 @@ int on_frame_send_callback(nghttp2_session *session, const nghttp2_frame *frame,
           make_string_ref(promised_balloc, StringRef{nv.value, nv.valuelen});
 
       auto token = http2::lookup_token(nv.name, nv.namelen);
-      switch (token) {
-      case http2::HD__METHOD:
-        req.method = http2::lookup_method_token(value);
-        break;
-      case http2::HD__SCHEME:
-        req.scheme = value;
-        break;
-      case http2::HD__AUTHORITY:
-        req.authority = value;
-        break;
-      case http2::HD__PATH:
-        req.path = http2::rewrite_clean_path(promised_balloc, value);
-        break;
+      if (!exist_real_req){
+        switch (token) {
+        case http2::HD__METHOD:
+          req.method = http2::lookup_method_token(value);
+          break;
+        case http2::HD__SCHEME:
+          req.scheme = value;
+          break;
+        case http2::HD__AUTHORITY:
+          req.authority = value;
+          break;
+        case http2::HD__PATH:
+          req.path = http2::rewrite_clean_path(promised_balloc, value);
+          break;
+        }
       }
       req.fs.add_header_token(name, value, nv.flags & NGHTTP2_NV_FLAG_NO_INDEX,
                               token);
@@ -1898,17 +1966,6 @@ int Http2Upstream::update_html_parser(const uint8_t *data, size_t len, int fin) 
                                    fin);
 }
 
-// For auto server push -- by h1994st
-namespace {
-std::string strip_fragment(const char *raw_uri) {
-  const char *end;
-  for (end = raw_uri; *end && *end != '#'; ++end)
-    ;
-  size_t len = end - raw_uri;
-  return std::string(raw_uri, len);
-}
-} // namespace
-
 unsigned seed = std::chrono::system_clock::now().time_since_epoch().count();
 std::default_random_engine generator(seed);
 std::bernoulli_distribution distribution(0.5);
@@ -1919,10 +1976,15 @@ int Http2Upstream::on_downstream_body(Downstream *downstream,
                                       const uint8_t *data, size_t len,
                                       bool flush) {
   auto body = downstream->get_response_buf();
+  if (LOG_ENABLED(INFO)) {
+    DLOG(INFO, downstream) << "HTTP response body received " << body->rleft()
+                           << " + " << len;
+  }
 
   // for auto push
   auto config = get_config();
-  if(config->http2.auto_push){
+  if(config->http2.auto_push || config->mirror_mode){
+    auto &req = downstream->request();
     auto &resp = downstream->response();
     auto content_type = resp.fs.header(http2::HD_CONTENT_TYPE);
     auto content_length = resp.fs.header(http2::HD_CONTENT_LENGTH);
@@ -1931,35 +1993,78 @@ int Http2Upstream::on_downstream_body(Downstream *downstream,
       this->update_html_parser(data, len, fin);
 
       auto html_parser = this->get_html_parser();
-      for (auto &p : html_parser->get_links()) {
-        auto uri = strip_fragment(p.first.c_str());
-        auto res_type = p.second;
-        auto should_push = distribution(generator);
 
-        DLOG(INFO, downstream) << "\x1b[32m[WFP-DEFENSE]\x1b[0m parsed link (" << uri <<")";
-        if (should_push) {
-          // Submit PUSH_PROMISE frame
-          int rv = this->initiate_push(downstream, StringRef(uri));
-          if (rv == 0) {
+      uint8_t *tmp = const_cast<uint8_t *>(data);
+      std::string buf(reinterpret_cast<char *>(tmp), len);
+
+      for (auto &p : html_parser->get_links()) {
+        DLOG(INFO, downstream) << "\x1b[32m[WFP-DEFENSE]\x1b[0m parsed link ("
+                               << p.first.c_str() << ")";
+        bool is_replcaed = false;
+        std::string replacement;
+        http_parser_url u{};
+
+        if(config->mirror_mode && !http_parser_parse_url(p.first.c_str(), p.first.size(), 0, &u)){
+          replacement = std::string("/?real-req=") + p.first;
+          // find the position of original url, there are two situations:
+          // url with scheme + host + port + path
+          // url with path
+          size_t idx = buf.find(p.first);
+          if(idx != std::string::npos){
+            buf.replace(idx, p.first.size(), replacement);
             DLOG(INFO, downstream)
-                << "\x1b[32m[WFP-DEFENSE]\x1b[0m link (" << uri << ") pushed";
-          } else {
-            DLOG(INFO, downstream)
-                << "\x1b[32m[WFP-DEFENSE]\x1b[0m push link (" << uri << ") failed";
+                << "\x1b[32m[WFP-DEFENSE]\x1b[0m replace with (" << replacement
+                << ") pushed";
+            is_replcaed = true;
+          }else{
+            std::string path = p.first.substr(u.field_data[UF_PATH].off);
+            idx = buf.find(path);
+            if (idx != std::string::npos){
+              buf.replace(idx, path.size(), replacement);
+              DLOG(INFO, downstream)
+                  << "\x1b[32m[WFP-DEFENSE]\x1b[0m replace with ("
+                  << replacement << ") pushed";
+              is_replcaed = true;
+            }
           }
-        } else {
-          DLOG(INFO, downstream)
-              << "\x1b[32m[WFP-DEFENSE]\x1b[0m skip link (" << uri << ")";
+        }
+        if (config->http2.auto_push) {
+          auto should_push = distribution(generator);
+          if (should_push) {
+            // Submit PUSH_PROMISE frame
+            int rv;
+            if (config->mirror_mode && is_replcaed)
+              // in mirror mode, we need push the replaced url
+              rv = this->initiate_push(
+                  downstream, StringRef(req.scheme.str() + "://" +
+                                        req.authority.str() + replacement));
+            else
+              rv = this->initiate_push(downstream, StringRef(p.first.c_str()));
+
+            if (rv == 0)
+              DLOG(INFO, downstream) << "\x1b[32m[WFP-DEFENSE]\x1b[0m link ("
+                                     << p.first.c_str() << ") pushed";
+            else
+              DLOG(INFO, downstream)
+                  << "\x1b[32m[WFP-DEFENSE]\x1b[0m push link ("
+                  << p.first.c_str() << ") failed";
+          } else
+            DLOG(INFO, downstream) << "\x1b[32m[WFP-DEFENSE]\x1b[0m skip link ("
+                                   << p.first.c_str() << ")";
         }
       }
-      html_parser->clear_links();
+      // html_parser->clear_links();
+
+      body->append(buf.c_str(), buf.size());
+
+      if (flush) {
+        nghttp2_session_resume_data(session_, downstream->get_stream_id());
+
+        downstream->ensure_upstream_wtimer();
+      }
+      return 0;
     }
   }
-  if (LOG_ENABLED(INFO)) {
-    DLOG(INFO, downstream) << "HTTP response body received " << body->rleft()
-                           << " + " << len;
-  }
-
   body->append(data, len);
 
   if (flush) {
@@ -2359,9 +2464,9 @@ int Http2Upstream::initiate_push(Downstream *downstream, const StringRef &uri) {
 
   auto &resp = downstream->response();
 
-  if (resp.is_resource_pushed(scheme, authority, path)) {
-    return 0;
-  }
+  // if (resp.is_resource_pushed(scheme, authority, path)) {
+  //   return 0;
+  // }
 
   rv = submit_push_promise(scheme, authority, path, downstream);
 

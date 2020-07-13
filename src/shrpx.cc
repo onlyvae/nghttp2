@@ -2555,6 +2555,10 @@ Mode:
   -s, --http2-proxy
               Like default mode, but enable forward proxy.  This is so
               called HTTP/2 proxy mode.
+  --mirror-mode
+              Replace the links with front end domain in the HTML body
+              of downstrame response. Make all static resources is in 
+              the same origin. So there are more resource to push.
 
 Logging:
   -L, --log-level=<LEVEL>
@@ -3523,6 +3527,7 @@ int main(int argc, char **argv) {
         {SHRPX_OPT_NO_STRIP_INCOMING_EARLY_DATA.c_str(), no_argument, &flag,
          166},
         {SHRPX_OPT_AUTO_PUSH.c_str(), no_argument, &flag, 167},
+        {SHRPX_OPT_MIRROR_MODE.c_str(), no_argument, &flag, 168},
         {nullptr, 0, nullptr, 0}};
 
     int option_index = 0;
@@ -4319,6 +4324,11 @@ int main(int argc, char **argv) {
       case 167:
         // --no-server-push
         cmdcfgs.emplace_back(SHRPX_OPT_AUTO_PUSH,
+                             StringRef::from_lit("yes"));
+        break;
+      case 168:
+        // --mirror-mode
+        cmdcfgs.emplace_back(SHRPX_OPT_MIRROR_MODE,
                              StringRef::from_lit("yes"));
         break;
       default:

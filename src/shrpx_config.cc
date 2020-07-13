@@ -1775,6 +1775,9 @@ int option_lookup_token(const char *name, size_t namelen) {
       if (util::strieq_l("server-nam", name, 10)) {
         return SHRPX_OPTID_SERVER_NAME;
       }
+      if (util::strieq_l("mirror-mod", name, 10)) {
+        return SHRPX_OPTID_MIRROR_MODE;
+      }
       break;
     case 'r':
       if (util::strieq_l("tls-sct-di", name, 10)) {
@@ -3263,6 +3266,10 @@ int parse_config(Config *config, int optid, const StringRef &opt,
   case SHRPX_OPTID_AUTO_PUSH:
     config->http2.auto_push = util::strieq_l("yes", optarg);
 
+    return 0;
+  case SHRPX_OPTID_MIRROR_MODE:
+    config->mirror_mode = util::strieq_l("yes", optarg);
+    LOG(INFO) << "\x1b[32m[WFP-DEFENSE]\x1b[0m mirror mode enabled.";
     return 0;
   case SHRPX_OPTID_BACKEND_HTTP2_CONNECTIONS_PER_WORKER:
     LOG(WARN) << opt << ": deprecated.";
