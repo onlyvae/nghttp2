@@ -1988,8 +1988,11 @@ int Http2Upstream::on_downstream_body(Downstream *downstream,
     auto &resp = downstream->response();
     auto content_type = resp.fs.header(http2::HD_CONTENT_TYPE);
     auto content_length = resp.fs.header(http2::HD_CONTENT_LENGTH);
-    if (content_type->value == StringRef::from_lit("text/html")) {
-      bool fin = resp.recv_body_length == util::parse_uint(content_length->value);
+    if (content_type->value.str().find("text/html") != std::string::npos) {
+      bool fin = false;
+      if (content_length)
+        fin = resp.recv_body_length == util::parse_uint(content_length->value);
+
       this->update_html_parser(data, len, fin);
 
       auto html_parser = this->get_html_parser();
