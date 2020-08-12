@@ -2493,6 +2493,18 @@ HTTP/2:
               via Link header field is also supported.
   --auto-push
               Enable HTTP/2 auto server push.
+  --defense
+              Enable defense.
+  --min-outbound-length=<N>
+            The minimum length of data chunk sending from the remote
+            endpoint.
+            Default: )"
+    << NGHTTP2_DEFAULT_MIN_OUTBOUND_LEN << R"(
+  --max-outbound-length=<N>
+            The maximum length of data chunk sending from the remote
+            endpoint.
+            Default: )"
+    << NGHTTP2_DEFAULT_MAX_OUTBOUND_LEN << R"(
   --frontend-http2-optimize-write-buffer-size
               (Experimental) Enable write  buffer size optimization in
               frontend HTTP/2 TLS  connection.  This optimization aims
@@ -3528,6 +3540,9 @@ int main(int argc, char **argv) {
          166},
         {SHRPX_OPT_AUTO_PUSH.c_str(), no_argument, &flag, 167},
         {SHRPX_OPT_MIRROR_MODE.c_str(), no_argument, &flag, 168},
+        {SHRPX_OPT_DEFENSE.c_str(), no_argument, &flag, 169},
+        {SHRPX_OPT_MIN_OUTBOUND_LENGTH.c_str(), required_argument, &flag, 170},
+        {SHRPX_OPT_MAX_OUTBOUND_LENGTH.c_str(), required_argument, &flag, 171},
         {nullptr, 0, nullptr, 0}};
 
     int option_index = 0;
@@ -4330,6 +4345,18 @@ int main(int argc, char **argv) {
         // --mirror-mode
         cmdcfgs.emplace_back(SHRPX_OPT_MIRROR_MODE,
                              StringRef::from_lit("yes"));
+        break;
+      case 169:
+        // --defense
+        cmdcfgs.emplace_back(SHRPX_OPT_DEFENSE, StringRef::from_lit("yes"));
+        break;
+      case 170:
+        // --min-outbound-length
+        cmdcfgs.emplace_back(SHRPX_OPT_MIN_OUTBOUND_LENGTH, StringRef{optarg});
+        break;
+      case 171:
+        // --max-outbound-length
+        cmdcfgs.emplace_back(SHRPX_OPT_MAX_OUTBOUND_LENGTH, StringRef{optarg});
         break;
       default:
         break;

@@ -28,7 +28,7 @@
 #include <assert.h>
 #include <cerrno>
 #include <sstream>
-
+#include <fstream>
 #include "shrpx_client_handler.h"
 #include "shrpx_https_upstream.h"
 #include "shrpx_downstream.h"
@@ -397,7 +397,7 @@ int Http2Upstream::on_request_headers(Downstream *downstream,
       std::string pathString = path->value.str();
       if (config->mirror_mode && pathString.find("/?real-req=") !=
           std::string::npos) {
-        std::string url = pathString.substr(11);
+        std::string url = util::percent_decode(pathString.c_str() + 11, pathString.c_str() + pathString.length());
         DLOG(INFO, downstream)
             << "\x1b[32m[WFP-DEFENSE]\x1b[0m extracted real rquest (" << url
             << ")";
@@ -409,7 +409,8 @@ int Http2Upstream::on_request_headers(Downstream *downstream,
           req.authority = make_string_ref(
               balloc, util::get_uri_field(url.c_str(), u, UF_HOST));
           req.path = make_string_ref(
-              balloc, util::get_uri_field(url.c_str(), u, UF_PATH));
+              balloc, StringRef(url.substr(u.field_data[UF_PATH].off,
+                                   url.size() - u.field_data[UF_PATH].off)));
         }
       } else
         req.path = http2::rewrite_clean_path(
@@ -762,7 +763,7 @@ int on_frame_send_callback(nghttp2_session *session, const nghttp2_frame *frame,
           // extract the real request url
           std::string pathString = value.str();
           if (pathString.find("/?real-req=") != std::string::npos) {
-            std::string url = pathString.substr(11);
+            std::string url = util::percent_decode(pathString.c_str() + 11, pathString.c_str() + pathString.length());
             DLOG(INFO, upstream)
                 << "\x1b[32m[WFP-DEFENSE]\x1b[0m extracted real rquest (" << url
                 << ")";
@@ -788,7 +789,8 @@ int on_frame_send_callback(nghttp2_session *session, const nghttp2_frame *frame,
                   nv.flags & NGHTTP2_NV_FLAG_NO_INDEX, http2::HD__AUTHORITY);
 
               req.path = make_string_ref(
-                  promised_balloc, util::get_uri_field(url.c_str(), u, UF_PATH));
+                  promised_balloc, StringRef(url.substr(u.field_data[UF_PATH].off,
+                                               url.size() - u.field_data[UF_PATH].off)));
               req.fs.add_header_token(
                   StringRef::from_lit(":path"), req.path,
                   nv.flags & NGHTTP2_NV_FLAG_NO_INDEX, http2::HD__PATH);
@@ -943,6 +945,57 @@ int send_data_callback(nghttp2_session *session, nghttp2_frame *frame,
 } // namespace
 
 namespace {
+int send_data_with_padding_callback(nghttp2_session *session,
+                                    nghttp2_frame *frame,
+                                    const uint8_t *framehd, size_t length,
+                                    nghttp2_data_source *source,
+                                    const uint8_t *padding, size_t padding_len,
+                                    void *user_data) {
+  auto downstream = static_cast<Downstream *>(source->ptr);
+  auto upstream = static_cast<Http2Upstream *>(downstream->get_upstream());
+  auto body = downstream->get_response_buf();
+
+  auto wb = upstream->get_response_buf();
+
+  size_t padlen = 0;
+
+  wb->append(framehd, 9);
+  if (frame->data.padlen > 0) {
+    padlen = frame->data.padlen - 1;
+    wb->append(static_cast<uint8_t>(padlen));
+  }
+
+  body->remove(*wb, length);
+
+  wb->append(PADDING.data(), padlen);
+
+  // copy padding
+  // by h1994st
+  if (padding_len) {
+    wb->append(padding, padding_len);
+  }
+
+  if (body->rleft() == 0) {
+    downstream->disable_upstream_wtimer();
+  } else {
+    downstream->reset_upstream_wtimer();
+  }
+
+  if (length > 0 && downstream->resume_read(SHRPX_NO_BUFFER, length) != 0) {
+    return NGHTTP2_ERR_CALLBACK_FAILURE;
+  }
+
+  // We have to add length here, so that we can log this amount of
+  // data transferred.
+  downstream->response_sent_body_length += length;
+
+  auto max_buffer_size = upstream->get_max_buffer_size();
+
+  return wb->rleft() >= max_buffer_size ? NGHTTP2_ERR_PAUSE : 0;
+}
+} // namespace
+
+namespace {
 uint32_t infer_upstream_rst_stream_error_code(uint32_t downstream_error_code) {
   // NGHTTP2_REFUSED_STREAM is important because it tells upstream
   // client to retry.
@@ -1055,10 +1108,14 @@ nghttp2_session_callbacks *create_http2_upstream_callbacks() {
   nghttp2_session_callbacks_set_on_begin_headers_callback(
       callbacks, on_begin_headers_callback);
 
-  nghttp2_session_callbacks_set_send_data_callback(callbacks,
-                                                   send_data_callback);
-
   auto config = get_config();
+
+  if (config->http2.defense)
+    nghttp2_session_callbacks_set_send_data_with_padding_callback(
+        callbacks, send_data_with_padding_callback);
+  else
+    nghttp2_session_callbacks_set_send_data_callback(callbacks,
+                                                    send_data_callback);
 
   if (config->padding) {
     nghttp2_session_callbacks_set_select_padding_callback(
@@ -1100,6 +1157,10 @@ Http2Upstream::Http2Upstream(ClientHandler *handler)
   auto &http2conf = config->http2;
 
   auto faddr = handler_->get_upstream_addr();
+  if (http2conf.defense)
+    nghttp2_option_set_outbound_restriction(http2conf.upstream.option,
+                                            http2conf.min_outbound_length,
+                                            http2conf.max_outbound_length);
 
   rv =
       nghttp2_session_server_new2(&session_, http2conf.upstream.callbacks, this,
@@ -1135,6 +1196,12 @@ Http2Upstream::Http2Upstream(ClientHandler *handler)
       NGHTTP2_DEFAULT_HEADER_TABLE_SIZE) {
     entry[nentry].settings_id = NGHTTP2_SETTINGS_HEADER_TABLE_SIZE;
     entry[nentry].value = http2conf.upstream.decoder_dynamic_table_size;
+    ++nentry;
+  }
+
+  if (config->http2.defense) { // -- by h1994st
+    entry[nentry].settings_id = NGHTTP2_SETTINGS_DEFENSE_ENABLED;
+    entry[nentry].value = 1;
     ++nentry;
   }
 
@@ -1298,6 +1365,9 @@ int Http2Upstream::on_write() {
       break;
     }
     wb_.append(data, datalen);
+
+    /* This break disables application-level buffer -- by h1994st */
+    break;
   }
 
   if (nghttp2_session_want_read(session_) == 0 &&
@@ -1835,8 +1905,9 @@ int Http2Upstream::on_downstream_header_complete(Downstream *downstream) {
 
   // For auto server push -- by h1994st
   if (!this->get_html_parser()) {
-    this->init_html_parser(req.scheme.str() + "://" +
-                         req.authority.str());
+    // this->init_html_parser(req.scheme.str() + "://" +
+    //                      req.authority.str());
+    this->init_html_parser("");
   }
 
   auto striphd_flags = http2::HDOP_STRIP_ALL & ~http2::HDOP_STRIP_VIA;
@@ -1954,6 +2025,8 @@ HtmlParser *Http2Upstream::get_html_parser() const { return html_parser_; }
 
 // For auto server push -- by h1994st
 void Http2Upstream::init_html_parser(const std::string &base_uri) {
+  if(html_parser_)
+    delete html_parser_;
   html_parser_ = new HtmlParser(base_uri);
 }
 
@@ -1987,52 +2060,71 @@ int Http2Upstream::on_downstream_body(Downstream *downstream,
     auto &req = downstream->request();
     auto &resp = downstream->response();
     auto content_type = resp.fs.header(http2::HD_CONTENT_TYPE);
-    auto content_length = resp.fs.header(http2::HD_CONTENT_LENGTH);
-    if (content_type->value.str().find("text/html") != std::string::npos) {
-      bool fin = false;
-      if (content_length)
-        fin = resp.recv_body_length == util::parse_uint(content_length->value);
+    if (content_type && content_type->value.str().find("text/html") != std::string::npos) {
+      // auto content_length = resp.fs.header(http2::HD_CONTENT_LENGTH);
+      // bool fin = false;
+      // if (content_length)
+      //   fin = resp.recv_body_length == util::parse_uint(content_length->value);
 
-      this->update_html_parser(data, len, fin);
+      this->update_html_parser(data, len, true);
 
       auto html_parser = this->get_html_parser();
 
       uint8_t *tmp = const_cast<uint8_t *>(data);
       std::string buf(reinterpret_cast<char *>(tmp), len);
-
+      std::ofstream fout;
+      if(config->http2.upstream.debug.frame_debug){
+        // Log parsed link to file
+        fout.open("/" + req.authority.str() + ".log",
+                          std::ios::in | std::ios::out | std::ios::app);
+        std::time_t now = std::chrono::system_clock::to_time_t(std::chrono::system_clock::now());
+        fout << ctime(&now);
+        fout << req.scheme.str() + "://" + req.authority.str() + req.path.str()
+            << std::endl;
+        fout << "=======================Content================================"
+            << std::endl;
+        fout.write(reinterpret_cast<const char *>(tmp), len)
+            << std::endl;
+        fout << "=======================Parsed URL============================="
+            << std::endl;
+      }
       for (auto &p : html_parser->get_links()) {
         DLOG(INFO, downstream) << "\x1b[32m[WFP-DEFENSE]\x1b[0m parsed link ("
                                << p.first.c_str() << ")";
+        fout.is_open() && fout << p.first.c_str() << std::endl;
         bool is_replcaed = false;
         std::string replacement;
         http_parser_url u{};
 
-        if(config->mirror_mode && !http_parser_parse_url(p.first.c_str(), p.first.size(), 0, &u)){
-          replacement = std::string("/?real-req=") + p.first;
-          // find the position of original url, there are two situations:
-          // url with scheme + host + port + path
-          // url with path
+        if (config->mirror_mode &&
+            !http_parser_parse_url(p.first.c_str(), p.first.size(), 0, &u)) {
+          // Has scheme
+          if (util::starts_with(p.first, std::string("http")))
+            replacement =
+                std::string("/?real-req=") + util::percent_encode(p.first);
+          // Do not has scheme but have host
+          else if (util::starts_with(p.first, std::string("//")))
+            replacement =
+                std::string("/?real-req=") +
+                util::percent_encode(req.scheme.str() + ":" + p.first);
+          // Do not have scheme and host
+          else
+            replacement = std::string("/?real-req=") +
+                          util::percent_encode(req.scheme.str() + "://" +
+                                               req.authority.str() + p.first);
+
+          // find the position of original url and replace it
           size_t idx = buf.find(p.first);
-          if(idx != std::string::npos){
+          if (idx != std::string::npos) {
             buf.replace(idx, p.first.size(), replacement);
             DLOG(INFO, downstream)
-                << "\x1b[32m[WFP-DEFENSE]\x1b[0m replace with (" << replacement
-                << ") pushed";
+                << "\x1b[32m[WFP-DEFENSE]\x1b[0m replace with " << replacement;
             is_replcaed = true;
-          }else{
-            std::string path = p.first.substr(u.field_data[UF_PATH].off);
-            idx = buf.find(path);
-            if (idx != std::string::npos){
-              buf.replace(idx, path.size(), replacement);
-              DLOG(INFO, downstream)
-                  << "\x1b[32m[WFP-DEFENSE]\x1b[0m replace with ("
-                  << replacement << ") pushed";
-              is_replcaed = true;
-            }
           }
         }
         if (config->http2.auto_push) {
           auto should_push = distribution(generator);
+          should_push = true;
           if (should_push) {
             // Submit PUSH_PROMISE frame
             int rv;
@@ -2056,7 +2148,12 @@ int Http2Upstream::on_downstream_body(Downstream *downstream,
                                    << p.first.c_str() << ")";
         }
       }
-      // html_parser->clear_links();
+      if(config->http2.upstream.debug.frame_debug){
+        fout << "=============================================================="
+            << std::endl;
+        fout.close();
+      }
+      this->init_html_parser("");
 
       body->append(buf.c_str(), buf.size());
 
@@ -2467,9 +2564,9 @@ int Http2Upstream::initiate_push(Downstream *downstream, const StringRef &uri) {
 
   auto &resp = downstream->response();
 
-  // if (resp.is_resource_pushed(scheme, authority, path)) {
-  //   return 0;
-  // }
+  if (resp.is_resource_pushed(scheme, authority, path)) {
+    return 0;
+  }
 
   rv = submit_push_promise(scheme, authority, path, downstream);
 

@@ -1671,6 +1671,9 @@ int option_lookup_token(const char *name, size_t namelen) {
       if (util::strieq_l("includ", name, 6)) {
         return SHRPX_OPTID_INCLUDE;
       }
+      if (util::strieq_l("defens", name, 6)) {
+        return SHRPX_OPTID_DEFENSE;
+      }
       break;
     case 'g':
       if (util::strieq_l("backlo", name, 6)) {
@@ -2038,6 +2041,14 @@ int option_lookup_token(const char *name, size_t namelen) {
     case 'f':
       if (util::strieq_l("backend-max-backof", name, 18)) {
         return SHRPX_OPTID_BACKEND_MAX_BACKOFF;
+      }
+      break;
+    case 'h':
+      if (util::strieq_l("min-outbound-lengt", name, 18)) {
+        return SHRPX_OPTID_MIN_OUTBOUND_LENGTH;
+      }
+      if (util::strieq_l("max-outbound-lengt", name, 18)) {
+        return SHRPX_OPTID_MAX_OUTBOUND_LENGTH;
       }
       break;
     case 'r':
@@ -3270,6 +3281,15 @@ int parse_config(Config *config, int optid, const StringRef &opt,
   case SHRPX_OPTID_MIRROR_MODE:
     config->mirror_mode = util::strieq_l("yes", optarg);
     LOG(INFO) << "\x1b[32m[WFP-DEFENSE]\x1b[0m mirror mode enabled.";
+    return 0;
+  case SHRPX_OPTID_DEFENSE:
+    config->http2.defense = util::strieq_l("yes", optarg);
+    return 0;
+  case SHRPX_OPTID_MIN_OUTBOUND_LENGTH:
+    config->http2.min_outbound_length = strtoul(optarg.c_str(), nullptr, 10);
+    return 0;
+  case SHRPX_OPTID_MAX_OUTBOUND_LENGTH:
+    config->http2.max_outbound_length = strtoul(optarg.c_str(), nullptr, 10);
     return 0;
   case SHRPX_OPTID_BACKEND_HTTP2_CONNECTIONS_PER_WORKER:
     LOG(WARN) << opt << ": deprecated.";

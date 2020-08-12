@@ -2610,18 +2610,22 @@ static int session_after_frame_sent1(nghttp2_session *session) {
           /* We need add call callback here, because PADDING frame here was
               directly added to buffer, not through calling
               nghttp2_session_add_padding() or nghttp2_submit_padding()  */
+          nghttp2_frame *padding_frame;
           size_t padding_frame_len;
+
+          padding_frame = nghttp2_mem_malloc(&session->mem, sizeof(nghttp2_frame));
           padding_frame_len = nghttp2_buf_padding_frame_len(&framebufs->cur->buf);
           if (padding_frame_len >= 9) {
             nghttp2_ext_padding padding;
             size_t padding_len;
 
-            frame->ext.payload = &padding;
+            padding_frame->ext.payload = &padding;
             padding_len = padding_frame_len - NGHTTP2_FRAME_HDLEN;
 
-            nghttp2_frame_padding_init(&frame->ext, NGHTTP2_FLAG_NONE, 0, padding_len);
+            nghttp2_frame_padding_init(&padding_frame->ext, NGHTTP2_FLAG_NONE,
+                                       0, padding_len);
 
-            rv = session_call_on_frame_send(session, frame);
+            rv = session_call_on_frame_send(session, padding_frame);
             if (nghttp2_is_fatal(rv)) {
               return rv;
             }
@@ -2688,18 +2692,22 @@ static int session_after_frame_sent1(nghttp2_session *session) {
     /* We need add callback here, because PADDING frame here was
         directly added to non-DATA frame, not through calling
         nghttp2_session_add_padding() or nghttp2_submit_padding()  */
+    nghttp2_frame *padding_frame;
     size_t padding_frame_len;
+
+    padding_frame = nghttp2_mem_malloc(&session->mem, sizeof(nghttp2_frame));
     padding_frame_len = nghttp2_buf_padding_frame_len(&framebufs->cur->buf);
     if (padding_frame_len >= 9) {
       nghttp2_ext_padding padding;
       size_t padding_len;
 
-      frame->ext.payload = &padding;
+      padding_frame->ext.payload = &padding;
       padding_len = padding_frame_len - NGHTTP2_FRAME_HDLEN;
 
-      nghttp2_frame_padding_init(&frame->ext, NGHTTP2_FLAG_NONE, 0, padding_len);
+      nghttp2_frame_padding_init(&padding_frame->ext, NGHTTP2_FLAG_NONE, 0,
+                                 padding_len);
 
-      rv = session_call_on_frame_send(session, frame);
+      rv = session_call_on_frame_send(session, padding_frame);
       if (nghttp2_is_fatal(rv)) {
         return rv;
       }
@@ -4748,7 +4756,7 @@ int nghttp2_session_on_settings_received(nghttp2_session *session,
             "SETTINGS: invalid NGHTTP2_SETTINGS_MIN_OUTBOUND_LEN");
       }
 
-      session->aob.framebufs.min_chunk_length = entry->value;
+      session->aob.framebufs.min_chunk_length = entry->value + 1;
 
       break;
     case NGHTTP2_SETTINGS_MAX_OUTBOUND_LEN:
@@ -4761,7 +4769,7 @@ int nghttp2_session_on_settings_received(nghttp2_session *session,
             "SETTINGS: invalid NGHTTP2_SETTINGS_MAX_OUTBOUND_LEN");
       }
 
-      session->aob.framebufs.max_chunk_length = entry->value;
+      session->aob.framebufs.max_chunk_length = entry->value + 1;
 
       break;
     }
