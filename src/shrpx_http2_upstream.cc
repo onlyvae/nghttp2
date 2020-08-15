@@ -418,6 +418,37 @@ int Http2Upstream::on_request_headers(Downstream *downstream,
     }
   }
 
+  // If mirror mode was enabled, then all static resoures will in the main origin.
+  // The origin and path of image request initiated by CSS will be wrong if the path in *.css file is releative path. 
+  // So we need correct it from extract real origin and path from Referer Header.
+  auto referer = req.fs.header(StringRef::from_lit("referer"));
+  if (config->mirror_mode && referer &&
+      referer->value.str().find("/?real-req=") != std::string::npos) {
+    std::string url =
+        util::percent_decode(referer->value.c_str() + scheme->value.size() + 3 +
+                                 authority->value.size() + 11,
+                             referer->value.c_str() + referer->value.size());
+    DLOG(INFO, downstream)
+        << "\x1b[32m[WFP-DEFENSE]\x1b[0m extracted real referer (" << url
+        << ")";
+    http_parser_url u{};
+    if (!http_parser_parse_url(url.c_str(), url.size(), 0, &u)) {
+      std::string refpath = url.substr(u.field_data[UF_PATH].off, u.field_data[UF_PATH].len);
+
+      if (refpath.find(".css") != std::string::npos) {
+        auto const pos = refpath.find_last_of('/');
+
+        auto &balloc = downstream->get_block_allocator();
+        req.scheme = make_string_ref(
+            balloc, util::get_uri_field(url.c_str(), u, UF_SCHEMA));
+        req.authority = make_string_ref(
+            balloc, util::get_uri_field(url.c_str(), u, UF_HOST));
+        req.path = make_string_ref(balloc, StringRef(refpath.substr(0, pos) +
+                                                     path->value.str()));
+      }
+    }
+  }
+
   auto connect_proto = req.fs.header(http2::HD__PROTOCOL);
   if (connect_proto) {
     if (connect_proto->value != "websocket") {
@@ -2089,34 +2120,39 @@ int Http2Upstream::on_downstream_body(Downstream *downstream,
             << std::endl;
       }
       for (auto &p : html_parser->get_links()) {
-        DLOG(INFO, downstream) << "\x1b[32m[WFP-DEFENSE]\x1b[0m parsed link ("
-                               << p.first.c_str() << ")";
-        fout.is_open() && fout << p.first.c_str() << std::endl;
         bool is_replcaed = false;
+        std::string originalUrl;
+        std::string repairedlUrl;
         std::string replacement;
         http_parser_url u{};
 
-        if (config->mirror_mode &&
-            !http_parser_parse_url(p.first.c_str(), p.first.size(), 0, &u)) {
-          // Has scheme
-          if (util::starts_with(p.first, std::string("http")))
-            replacement =
-                std::string("/?real-req=") + util::percent_encode(p.first);
-          // Do not has scheme but have host
-          else if (util::starts_with(p.first, std::string("//")))
-            replacement =
-                std::string("/?real-req=") +
-                util::percent_encode(req.scheme.str() + ":" + p.first);
-          // Do not have scheme and host
-          else
-            replacement = std::string("/?real-req=") +
-                          util::percent_encode(req.scheme.str() + "://" +
-                                               req.authority.str() + p.first);
+        originalUrl = p.first;
 
-          // find the position of original url and replace it
-          size_t idx = buf.find(p.first);
+        DLOG(INFO, downstream) << "\x1b[32m[WFP-DEFENSE]\x1b[0m parsed link ("
+                               << originalUrl << ")";
+        fout.is_open() && fout << originalUrl << std::endl;
+
+        if (util::starts_with(p.first, std::string("http")))
+          repairedlUrl = originalUrl;
+        else if (util::starts_with(originalUrl, std::string("//")))
+          repairedlUrl = req.scheme.str() + ":" + originalUrl;
+        else
+          repairedlUrl = req.scheme.str() + "://" + req.authority.str()  + originalUrl;
+
+        if (config->mirror_mode &&
+            !http_parser_parse_url(repairedlUrl.c_str(), repairedlUrl.size(), 0, &u)) {
+
+          // Skip url that does not has file ext and query string
+          if (util::get_uri_field(repairedlUrl.c_str(), u, UF_PATH).str().find(".") == std::string::npos &&
+              u.field_data[UF_QUERY].len == 0)
+            continue;
+
+          replacement =std::string("/?real-req=") + util::percent_encode(repairedlUrl);
+
+          // find the position of original url and replace it with replacement
+          size_t idx = buf.find(originalUrl);
           if (idx != std::string::npos) {
-            buf.replace(idx, p.first.size(), replacement);
+            buf.replace(idx, originalUrl.size(), replacement);
             DLOG(INFO, downstream)
                 << "\x1b[32m[WFP-DEFENSE]\x1b[0m replace with " << replacement;
             is_replcaed = true;
@@ -2124,7 +2160,7 @@ int Http2Upstream::on_downstream_body(Downstream *downstream,
         }
         if (config->http2.auto_push) {
           auto should_push = distribution(generator);
-          should_push = true;
+          // should_push = true;
           if (should_push) {
             // Submit PUSH_PROMISE frame
             int rv;
@@ -2134,18 +2170,18 @@ int Http2Upstream::on_downstream_body(Downstream *downstream,
                   downstream, StringRef(req.scheme.str() + "://" +
                                         req.authority.str() + replacement));
             else
-              rv = this->initiate_push(downstream, StringRef(p.first.c_str()));
+              rv = this->initiate_push(downstream, StringRef(repairedlUrl));
 
             if (rv == 0)
               DLOG(INFO, downstream) << "\x1b[32m[WFP-DEFENSE]\x1b[0m link ("
-                                     << p.first.c_str() << ") pushed";
+                                     << repairedlUrl << ") pushed";
             else
               DLOG(INFO, downstream)
-                  << "\x1b[32m[WFP-DEFENSE]\x1b[0m push link ("
-                  << p.first.c_str() << ") failed";
+                  << "\x1b[32m[WFP-DEFENSE]\x1b[0m push link (" << repairedlUrl
+                  << ") failed";
           } else
             DLOG(INFO, downstream) << "\x1b[32m[WFP-DEFENSE]\x1b[0m skip link ("
-                                   << p.first.c_str() << ")";
+                                   << repairedlUrl << ")";
         }
       }
       if(config->http2.upstream.debug.frame_debug){
