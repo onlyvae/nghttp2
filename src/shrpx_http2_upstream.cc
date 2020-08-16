@@ -395,9 +395,11 @@ int Http2Upstream::on_request_headers(Downstream *downstream,
     } else {
       // extract the real request url
       std::string pathString = path->value.str();
-      if (config->mirror_mode && pathString.find("/?real-req=") !=
-          std::string::npos) {
-        std::string url = util::percent_decode(pathString.c_str() + 11, pathString.c_str() + pathString.length());
+      auto const pos = pathString.find("/?real-req=");
+      if (config->mirror_mode && pos != std::string::npos) {
+        std::string url =
+            util::percent_decode(pathString.c_str() + pos + 11,
+                                 pathString.c_str() + pathString.length());
         DLOG(INFO, downstream)
             << "\x1b[32m[WFP-DEFENSE]\x1b[0m extracted real rquest (" << url
             << ")";
@@ -418,15 +420,16 @@ int Http2Upstream::on_request_headers(Downstream *downstream,
     }
   }
 
-  // If mirror mode was enabled, then all static resoures will in the main origin.
-  // The origin and path of image request initiated by CSS will be wrong if the path in *.css file is releative path. 
-  // So we need correct it from extract real origin and path from Referer Header.
+  // If mirror mode was enabled, then all static resoures will have the same
+  // origin. The origin of image request initiated by CSS will be wrong if the
+  // path in *.css file is releative path or absolute path. So we need correct it
+  // from extracting real origin and path from Referer Header.
   auto referer = req.fs.header(StringRef::from_lit("referer"));
   if (config->mirror_mode && referer &&
       referer->value.str().find("/?real-req=") != std::string::npos) {
+    auto const pos = referer->value.str().find("/?real-req=");
     std::string url =
-        util::percent_decode(referer->value.c_str() + scheme->value.size() + 3 +
-                                 authority->value.size() + 11,
+        util::percent_decode(referer->value.c_str() + pos + 11,
                              referer->value.c_str() + referer->value.size());
     DLOG(INFO, downstream)
         << "\x1b[32m[WFP-DEFENSE]\x1b[0m extracted real referer (" << url
@@ -436,15 +439,11 @@ int Http2Upstream::on_request_headers(Downstream *downstream,
       std::string refpath = url.substr(u.field_data[UF_PATH].off, u.field_data[UF_PATH].len);
 
       if (refpath.find(".css") != std::string::npos) {
-        auto const pos = refpath.find_last_of('/');
-
         auto &balloc = downstream->get_block_allocator();
         req.scheme = make_string_ref(
             balloc, util::get_uri_field(url.c_str(), u, UF_SCHEMA));
         req.authority = make_string_ref(
             balloc, util::get_uri_field(url.c_str(), u, UF_HOST));
-        req.path = make_string_ref(balloc, StringRef(refpath.substr(0, pos) +
-                                                     path->value.str()));
       }
     }
   }
@@ -793,8 +792,11 @@ int on_frame_send_callback(nghttp2_session *session, const nghttp2_frame *frame,
               make_string_ref(promised_balloc, StringRef{nv.value, nv.valuelen});
           // extract the real request url
           std::string pathString = value.str();
-          if (pathString.find("/?real-req=") != std::string::npos) {
-            std::string url = util::percent_decode(pathString.c_str() + 11, pathString.c_str() + pathString.length());
+          auto const pos = pathString.find("/?real-req=");
+          if (pos != std::string::npos) {
+            std::string url =
+                util::percent_decode(pathString.c_str() + pos + 11,
+                                     pathString.c_str() + pathString.length());
             DLOG(INFO, upstream)
                 << "\x1b[32m[WFP-DEFENSE]\x1b[0m extracted real rquest (" << url
                 << ")";
@@ -2141,13 +2143,16 @@ int Http2Upstream::on_downstream_body(Downstream *downstream,
 
         if (config->mirror_mode &&
             !http_parser_parse_url(repairedlUrl.c_str(), repairedlUrl.size(), 0, &u)) {
-
+          
+          std::string path = util::get_uri_field(repairedlUrl.c_str(), u, UF_PATH).str();
           // Skip url that does not has file ext and query string
-          if (util::get_uri_field(repairedlUrl.c_str(), u, UF_PATH).str().find(".") == std::string::npos &&
+          if (path.find(".") == std::string::npos &&
               u.field_data[UF_QUERY].len == 0)
             continue;
 
-          replacement =std::string("/?real-req=") + util::percent_encode(repairedlUrl);
+          auto const pos = path.find_last_of('/');
+          replacement = path.substr(0, pos) + std::string("/?real-req=") +
+                        util::percent_encode(repairedlUrl);
 
           // find the position of original url and replace it with replacement
           size_t idx = buf.find(originalUrl);
