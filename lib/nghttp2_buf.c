@@ -26,12 +26,12 @@
 
 #include <stdio.h>
 #include <stdlib.h>
-#include <time.h>
+
 #include "nghttp2_helper.h"
 #include "nghttp2_debug.h"
 #include "nghttp2_frame.h"
 
-#define RANDOM(min, max) (((size_t)rand() % (max - min + 1)) + min) // generate a random number in [min, max]
+#define RANDOM(min, max) ((rand() % (max - min + 1)) + min) // generate a random number in [min, max]
 
 void nghttp2_buf_init(nghttp2_buf *buf) {
   buf->begin = NULL;
@@ -164,7 +164,7 @@ int nghttp2_random_bufs_init(nghttp2_bufs *bufs, uint16_t min_chunk_length,
                              size_t offset, nghttp2_mem *mem) {
   int rv;
   nghttp2_buf_chain *chain;
-  srand((uint)time(NULL));
+  srand(time(0));
 
   if (chunk_keep == 0 || max_chunk_length < min_chunk_length ||
       min_chunk_length < offset) {

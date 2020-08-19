@@ -116,8 +116,12 @@ std::string strframetype(uint8_t type) {
     return "ALTSVC";
   case NGHTTP2_ORIGIN:
     return "ORIGIN";
-  case NGHTTP2_PADDING:
-    return "PADDING";
+  case NGHTTP2_DUMMY:
+    return "DUMMY";
+  case NGHTTP2_FAKE_REQUEST:
+    return "FAKE_REQUEST";
+  case NGHTTP2_FAKE_RESPONSE:
+    return "FAKE_RESPONSE";
   }
   std::string s = "extension(0x";
   s += util::format_hex(&type, 1);
@@ -244,9 +248,26 @@ void print_flags(const nghttp2_frame_hd &hd) {
       s += "ACK";
     }
     break;
-  case NGHTTP2_PADDING:
-    if (hd.flags & NGHTTP2_FLAG_PADDING_REQUEST) {
-      s += "PADDING_REQUEST";
+  case NGHTTP2_FAKE_REQUEST:
+    if (hd.flags & NGHTTP2_FLAG_END_STREAM) {
+      s += "END_STREAM";
+    }
+    if (hd.flags & NGHTTP2_FLAG_PRIORITY) {
+      if (!s.empty()) {
+        s += " | ";
+      }
+      s += "PRIORITY";
+    }
+    if (hd.flags & NGHTTP2_FLAG_END_FAKE_REQUEST) {
+      if (!s.empty()) {
+        s += " | ";
+      }
+      s += "END_FAKE_REQUEST";
+    }
+    break;
+  case NGHTTP2_FAKE_RESPONSE:
+    if (hd.flags & NGHTTP2_FLAG_END_STREAM) {
+      s += "END_STREAM";
     }
     break;
   }
@@ -376,13 +397,18 @@ void print_frame(print_type ptype, const nghttp2_frame *frame) {
     }
     break;
   }
-  case NGHTTP2_PADDING: {
-    if (frame->hd.flags & NGHTTP2_FLAG_PADDING_REQUEST) {
-      auto padding =
-          static_cast<nghttp2_ext_padding *>(frame->ext.payload);
+  case NGHTTP2_FAKE_REQUEST: {
+    if (frame->hd.flags & NGHTTP2_FLAG_END_FAKE_REQUEST) {
+      auto fake_request =
+          static_cast<nghttp2_ext_fake_request *>(frame->ext.payload);
       print_frame_attr_indent();
       fprintf(outfile, "(");
-      fprintf(outfile, "expected_len=%zu)\n", padding->expected_padding_length);
+      if (frame->hd.flags & NGHTTP2_FLAG_PRIORITY) {
+        fprintf(outfile, "(dep_stream_id=%d, weight=%u, exclusive=%d, ",
+                fake_request->pri_spec.stream_id, fake_request->pri_spec.weight,
+                fake_request->pri_spec.exclusive);
+      }
+      fprintf(outfile, "expected_len=%d)\n", fake_request->expected_response_length);
     }
     break;
   }

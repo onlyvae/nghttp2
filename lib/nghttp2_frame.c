@@ -253,18 +253,50 @@ void nghttp2_frame_origin_free(nghttp2_extension *frame, nghttp2_mem *mem) {
   nghttp2_mem_free(mem, origin->ov);
 }
 
-void nghttp2_frame_padding_init(nghttp2_extension *frame, uint8_t flags,
-                                size_t expected_len, size_t padding_len) {
-  nghttp2_ext_padding *padding;
-  nghttp2_frame_hd_init(
-      &frame->hd, padding_len + (flags & NGHTTP2_FLAG_PADDING_REQUEST ? 4 : 0),
-      NGHTTP2_PADDING, flags, 0);
-  padding = frame->payload;
-  padding->expected_padding_length = expected_len;
-  padding->padding_length = padding_len;
+void nghttp2_frame_fake_request_init(nghttp2_extension *frame, uint8_t flags,
+                                     int32_t stream_id,
+                                     const nghttp2_priority_spec *pri_spec,
+                                     uint16_t expected_response_length,
+                                     uint16_t dummy_length) {
+  nghttp2_ext_fake_request *fake_request;
+  nghttp2_frame_hd_init(&frame->hd,
+                        nghttp2_frame_priority_len(flags) + 2 + (size_t)dummy_length,
+                        NGHTTP2_FAKE_REQUEST, flags, stream_id);
+  fake_request = frame->payload;
+
+  if (pri_spec) {
+    fake_request->pri_spec = *pri_spec;
+    nghttp2_priority_spec_normalize_weight(&fake_request->pri_spec);
+  } else {
+    nghttp2_priority_spec_default_init(&fake_request->pri_spec);
+  }
+  fake_request = frame->payload;
+  fake_request->expected_response_length = expected_response_length;
+  fake_request->dummy_length = dummy_length;
 }
 
-void nghttp2_frame_padding_free(nghttp2_extension *frame) { (void)frame; }
+void nghttp2_frame_fake_request_free(nghttp2_extension *frame) { (void)frame; }
+
+void nghttp2_frame_fake_response_init(nghttp2_extension *frame,
+                                      int32_t stream_id,
+                                      uint16_t expected_response_length) {
+  nghttp2_ext_fake_response *fake_response;
+  nghttp2_frame_hd_init(&frame->hd, expected_response_length, NGHTTP2_FAKE_RESPONSE, NGHTTP2_FLAG_NONE, stream_id);
+  fake_response = frame->payload;
+  fake_response->dummy_length = expected_response_length;
+}
+
+void nghttp2_frame_fake_response_free(nghttp2_extension *frame) { (void)frame; }
+
+void nghttp2_frame_dummy_init(nghttp2_extension *frame,
+                                      uint16_t expected_response_length) {
+  nghttp2_ext_dummy *dummy;
+  nghttp2_frame_hd_init(&frame->hd, expected_response_length, NGHTTP2_DUMMY, NGHTTP2_FLAG_NONE, 0);
+  dummy = frame->payload;
+  dummy->dummy_length = expected_response_length;
+}
+
+void nghttp2_frame_dummy_free(nghttp2_extension *frame) { (void)frame; }
 
 size_t nghttp2_frame_priority_len(uint8_t flags) {
   if (flags & NGHTTP2_FLAG_PRIORITY) {
@@ -891,37 +923,79 @@ int nghttp2_frame_unpack_origin_payload(nghttp2_extension *frame,
   return 0;
 }
 
-int nghttp2_frame_pack_padding(nghttp2_bufs *bufs,
-                             nghttp2_extension *frame) {
+int nghttp2_frame_pack_fake_request(nghttp2_bufs *bufs,
+                                        nghttp2_extension *frame) {
   nghttp2_buf *buf;
-  nghttp2_ext_padding *padding;
-  
+  nghttp2_ext_fake_request *fake_request;
+
   buf = &bufs->head->buf;
-  padding = frame->payload;
+  fake_request = frame->payload;
 
-  if (frame->hd.flags & NGHTTP2_FLAG_PADDING_REQUEST) {
-    // write expected padding length
-    nghttp2_put_uint32be(buf->last, (uint32_t)padding->expected_padding_length);
-    buf->last += 4;
+  /*
+   * 1. Pack the first FAKE_REQUEST: priority, expected length
+   * 2. Pack dummy content
+   * 3. Update each frame headers
+   */
+  // 1.
+  /* Pack priority. */
+  if (frame->hd.flags & NGHTTP2_FLAG_PRIORITY) {
+    nghttp2_frame_pack_priority_spec(buf->last, &fake_request->pri_spec);
   }
-  nghttp2_bufs_repeat_addb(bufs, (uint8_t)rand() % 255, padding->padding_length);
+  buf->last += nghttp2_frame_priority_len(frame->hd.flags);
 
+  /* Pack expected length field. */
+  nghttp2_put_uint16be(buf->last, fake_request->expected_response_length);
+  buf->last += 2;
+
+  // 2.
+  /* Dummy part. */
+  nghttp2_bufs_repeat_addb(bufs, (uint8_t)rand() % 255, fake_request->dummy_length);
+
+  // 3.
   nghttp2_buf_chain *ci;
+  nghttp2_buf_chain *ce;
   nghttp2_frame_hd hd;
 
-  /* Pack the first frame header. */
+  buf = &bufs->head->buf;
+
   hd = frame->hd;
   hd.length = nghttp2_buf_len(buf);
-  DEBUGF("send: PADDING, payloadlen=%zu\n", hd.length);
+
+  DEBUGF("send: FAKE_REQUEST, payloadlen=%zu\n", hd.length);
+
+  if (bufs->head != bufs->cur) {
+    /* Multiple HX_DECOY_REQUEST frames */
+    hd.flags = (uint8_t)(hd.flags & ~NGHTTP2_FLAG_END_STREAM);
+  }
+
+  /* Pack the first frame header. */
+  hd.flags |= NGHTTP2_FLAG_END_FAKE_REQUEST;
   buf->pos -= NGHTTP2_FRAME_HDLEN;
   nghttp2_frame_pack_frame_hd(buf->pos, &hd);
 
-  hd.flags = NGHTTP2_FLAG_NONE;
+  if (bufs->head != bufs->cur) {
+    /* 2nd and later DECOY_RESPONSE frames. */
+    hd.type = NGHTTP2_FAKE_REQUEST;
+    hd.flags = NGHTTP2_FLAG_NONE;
 
-  for (ci = bufs->head->next; ci; ci = ci->next) {
+    ce = bufs->cur;
+
+    for (ci = bufs->head->next; ci != ce; ci = ci->next) {
+      buf = &ci->buf;
+      hd.length = nghttp2_buf_len(buf);
+
+      DEBUGF("send: int FAKE_REQUEST, payloadlen=%zu\n", hd.length);
+
+      buf->pos -= NGHTTP2_FRAME_HDLEN;
+      nghttp2_frame_pack_frame_hd(buf->pos, &hd);
+    }
+
     buf = &ci->buf;
     hd.length = nghttp2_buf_len(buf);
-    DEBUGF("send: PADDING, payloadlen=%zu\n", hd.length);
+    hd.flags = NGHTTP2_FLAG_END_STREAM;
+
+    DEBUGF("send: last FAKE_REQUEST, payloadlen=%zu\n", hd.length);
+
     buf->pos -= NGHTTP2_FRAME_HDLEN;
     nghttp2_frame_pack_frame_hd(buf->pos, &hd);
   }
@@ -929,19 +1003,60 @@ int nghttp2_frame_pack_padding(nghttp2_bufs *bufs,
   return 0;
 }
 
-void nghttp2_frame_unpack_padding_payload(nghttp2_extension *frame,
+int nghttp2_frame_pack_fake_response(nghttp2_bufs *bufs, nghttp2_extension *frame) {
+  nghttp2_buf *buf;
+  nghttp2_ext_fake_response *fake_response;
+
+  fake_response = frame->payload;
+  buf = &bufs->head->buf;
+
+  assert(nghttp2_buf_avail(buf) >= fake_response->dummy_length);
+
+  buf->pos -= NGHTTP2_FRAME_HDLEN;
+  nghttp2_frame_pack_frame_hd(buf->pos, &frame->hd);
+
+  memset(buf->last, rand() % 255, fake_response->dummy_length);
+  buf->last += fake_response->dummy_length;
+ 
+  return 0;
+}
+
+int nghttp2_frame_pack_dummy(nghttp2_bufs *bufs,
+                             nghttp2_extension *frame) {
+  nghttp2_buf *buf;
+  nghttp2_ext_dummy *dummy;
+
+  dummy = frame->payload;
+  buf = &bufs->head->buf;
+
+  assert(nghttp2_buf_avail(buf) >= dummy->dummy_length);
+
+  buf->pos -= NGHTTP2_FRAME_HDLEN;
+  nghttp2_frame_pack_frame_hd(buf->pos, &frame->hd);
+
+  memset(buf->last, rand() % 255, dummy->dummy_length);
+  buf->last += dummy->dummy_length;
+
+  return 0;
+}
+
+void nghttp2_frame_unpack_fake_request_payload(nghttp2_extension *frame,
                                                uint8_t *payload) {
-  nghttp2_ext_padding *padding = frame->payload;
+  nghttp2_ext_fake_request *fake_request = frame->payload;
   uint8_t *p = payload;
 
-  /* Unpack expected length. */
-  if (frame->hd.flags & NGHTTP2_FLAG_PADDING_REQUEST)
-    padding->expected_padding_length = nghttp2_get_uint32(p);
-  else
-    padding->expected_padding_length = 0;
-  
-  DEBUGF("recv: expected response length=%zu\n", padding->expected_padding_length);
-  padding->padding_length = 0; /* This length is not important */
+  /* Unpack priority. */
+  if (frame->hd.flags & NGHTTP2_FLAG_PRIORITY) {
+    nghttp2_frame_unpack_priority_spec(&fake_request->pri_spec, payload);
+  } else {
+    nghttp2_priority_spec_default_init(&fake_request->pri_spec);
+  }
+  p += nghttp2_frame_priority_len(frame->hd.flags);
+
+  /* Unpack expected length field. */
+  fake_request->expected_response_length = nghttp2_get_uint16(p);
+  DEBUGF("recv: expected response length=%zu\n", fake_request->expected_response_length);
+  fake_request->dummy_length = 0; /* This length is not important */
 }
 
 nghttp2_settings_entry *nghttp2_frame_iv_copy(const nghttp2_settings_entry *iv,

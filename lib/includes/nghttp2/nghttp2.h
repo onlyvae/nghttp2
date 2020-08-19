@@ -656,11 +656,23 @@ typedef enum {
    */
   NGHTTP2_ORIGIN = 0x0c,
   /**
-   * The PADDING frame. This frame type will be ignore and discard as
+   * The DUMMY frame. This frame type will be ignore and discard as
    * any unknown frame types.
    * -- by h1994st
    */
-  NGHTTP2_PADDING = 0x0d
+  NGHTTP2_DUMMY = 0x0d,
+  /**
+   * The DECOY_REQUEST frame. This frame type is always sent out by
+   * the client endpoint.
+   * -- by h1994st
+   */
+  NGHTTP2_FAKE_REQUEST = 0x0e,
+  /**
+   * The DECOY_RESPONSE frame. This frame type is always sent out by
+   * the server endpoint.
+   * -- by h1994st
+   */
+  NGHTTP2_FAKE_RESPONSE = 0x0f,
 } nghttp2_frame_type;
 
 /**
@@ -695,9 +707,9 @@ typedef enum {
    */
   NGHTTP2_FLAG_PRIORITY = 0x20,
   /**
-   * The PADDING_REQUEST flag.
+   * The END_FAKE_REQUEST flag.
    */
-  NGHTTP2_FLAG_PADDING_REQUEST = 0x40
+  NGHTTP2_FLAG_END_FAKE_REQUEST = 0x04
 } nghttp2_flag;
 
 /**
@@ -1423,13 +1435,13 @@ typedef int (*nghttp2_send_data_callback)(nghttp2_session *session,
                                           nghttp2_data_source *source,
                                           void *user_data);
 
-typedef int (*nghttp2_send_data_with_padding_callback)(nghttp2_session *session,
+typedef int (*nghttp2_send_data_with_dummy_callback)(nghttp2_session *session,
                                                      nghttp2_frame *frame,
                                                      const uint8_t *framehd,
                                                      size_t length,
                                                      nghttp2_data_source *source,
-                                                     const uint8_t *padding,
-                                                     size_t padding_len,
+                                                     const uint8_t *dummy,
+                                                     size_t dummy_len,
                                                      void *user_data);
 
 /**
@@ -2357,11 +2369,11 @@ NGHTTP2_EXTERN void nghttp2_session_callbacks_set_send_data_callback(
 /**
  * @function
  *
- * This function will send PADDING frame after DATA frame sent.
+ * This function will send DUMMY frame after DATA frame sent.
  */
-NGHTTP2_EXTERN void nghttp2_session_callbacks_set_send_data_with_padding_callback(
+NGHTTP2_EXTERN void nghttp2_session_callbacks_set_send_data_with_dummy_callback(
     nghttp2_session_callbacks *cbs,
-    nghttp2_send_data_with_padding_callback send_data_with_padding_callback);
+    nghttp2_send_data_with_dummy_callback send_data_with_dummy_callback);
 
 /**
  * @function
@@ -4760,29 +4772,64 @@ NGHTTP2_EXTERN int nghttp2_submit_origin(nghttp2_session *session,
 
 /**
  * @struct
- *
- * The payload of PADDING frame.
+ * 
+ * The payload of FAKE_REQUEST frame.
  */
 typedef struct {
   /**
-   * An unsigned 32-bit integer that indicates the size of expected
-   * PADDING frame ack.
+   * The priority specification.
    */
-  size_t expected_padding_length;
+  nghttp2_priority_spec pri_spec;
   /**
-   * The padding length of PADDING frame.
+   * An unsigned 32-bit integer that indicates the size of expected FAKE_RESPONSE frame.
    */
-  size_t padding_length;
-} nghttp2_ext_padding;
+  uint16_t expected_response_length;
+  /**
+   * The dummy length of FAKE_REQUEST frame.
+  */
+  uint16_t dummy_length;
+} nghttp2_ext_fake_request;
 
 /**
  * @function
  *
- * Submits PADDING frame.
+ * Submits FAKE_REQUEST frame.
  */
-NGHTTP2_EXTERN int nghttp2_submit_padding(nghttp2_session *session,
-                                          uint8_t flags, size_t expected_len,
-                                          size_t padding_len);
+NGHTTP2_EXTERN int nghttp2_submit_fake_request(nghttp2_session *session, uint8_t flags,
+                                int32_t stream_id,
+                                const nghttp2_priority_spec *pri_spec,
+                                uint16_t expected_len, uint16_t dummy_len);
+
+/**
+ * @struct
+ *
+ * The payload of FAKE_RESPONSE frame.
+ */
+typedef struct {
+  /**
+   * The dummy length of FAKE_RESPONSE frame.
+   */
+  uint16_t dummy_length;
+} nghttp2_ext_fake_response;
+
+/**
+ * @struct
+ *
+ * The payload of DUMMY frame.
+ */
+typedef struct {
+  /**
+   * The dummy length of DUMMY frame.
+   */
+  uint16_t dummy_length;
+} nghttp2_ext_dummy;
+
+/**
+ * @function
+ *
+ * Submits DUMMY frame.
+ */
+NGHTTP2_EXTERN int nghttp2_submit_dummy(nghttp2_session *session, uint16_t dummy_len);
 
 /**
  * @function
