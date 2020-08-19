@@ -1385,9 +1385,12 @@ int Http2Upstream::on_write() {
     if (wb_.rleft() >= max_buffer_size_) {
       return 0;
     }
-
+    // DATA frame will not be obtained here if NGHTTP2_DATA_FLAG_NO_COPY is set.
     const uint8_t *data;
     auto datalen = nghttp2_session_mem_send(session_, &data);
+    if (LOG_ENABLED(INFO)) {
+      ULOG(INFO, this) << "\x1b[32m[WFP-DEFENSE]\x1b[0m get " << datalen << " data from lib";
+    }
 
     if (datalen < 0) {
       ULOG(ERROR, this) << "nghttp2_session_mem_send() returned error: "
@@ -2134,12 +2137,14 @@ int Http2Upstream::on_downstream_body(Downstream *downstream,
                                << originalUrl << ")";
         fout.is_open() && fout << originalUrl << std::endl;
 
-        if (util::starts_with(p.first, std::string("http")))
+        if (util::starts_with(p.first, std::string("http")))            // https://xxx.com/x.png
           repairedlUrl = originalUrl;
-        else if (util::starts_with(originalUrl, std::string("//")))
+        else if (util::starts_with(originalUrl, std::string("//")))     // //xxx.com/x.png
           repairedlUrl = req.scheme.str() + ":" + originalUrl;
-        else
+        else if (util::starts_with(originalUrl, std::string("/")))      //  /xxx.png
           repairedlUrl = req.scheme.str() + "://" + req.authority.str()  + originalUrl;
+        else                                                            //  xxx.png
+          repairedlUrl = req.scheme.str() + "://" + req.authority.str()  + "/" + originalUrl;
 
         if (config->mirror_mode &&
             !http_parser_parse_url(repairedlUrl.c_str(), repairedlUrl.size(), 0, &u)) {

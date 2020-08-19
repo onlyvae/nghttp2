@@ -694,7 +694,9 @@ ssize_t Connection::write_tls(const void *data, size_t len) {
   tls.last_write_idle = -1.;
 
   ERR_clear_error();
-
+  if (LOG_ENABLED(INFO)) {
+    LOG(INFO) << "\x1b[32m[WFP-DEFENSE]\x1b[0m SSL_write expected: " << len;
+  }
 #if OPENSSL_1_1_1_API
   int rv;
   if (SSL_is_init_finished(tls.ssl)) {
@@ -711,6 +713,9 @@ ssize_t Connection::write_tls(const void *data, size_t len) {
   auto rv = SSL_write(tls.ssl, data, len);
 #endif // !OPENSSL_1_1_1_API
 
+  if (LOG_ENABLED(INFO)) {
+    LOG(INFO) << "\x1b[32m[WFP-DEFENSE]\x1b[0m SSL_write actual: " << rv;
+  }
   if (rv <= 0) {
     auto err = SSL_get_error(tls.ssl, rv);
     switch (err) {
