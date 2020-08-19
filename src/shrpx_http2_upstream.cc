@@ -361,6 +361,13 @@ int Http2Upstream::on_request_headers(Downstream *downstream,
     return 0;
   }
 
+  if (method_token == HTTP_OPTIONS) {
+    if (cors_reply(downstream) != 0) {
+      return NGHTTP2_ERR_TEMPORAL_CALLBACK_FAILURE;
+    }
+    return 0;
+  }
+
   auto faddr = handler_->get_upstream_addr();
 
   // For HTTP/2 proxy, we require :authority.
@@ -1781,6 +1788,43 @@ int Http2Upstream::error_reply(Downstream *downstream,
 
   rv = nghttp2_submit_response(session_, downstream->get_stream_id(),
                                nva.data(), nva.size(), &data_prd);
+  if (rv < NGHTTP2_ERR_FATAL) {
+    ULOG(FATAL, this) << "nghttp2_submit_response() failed: "
+                      << nghttp2_strerror(rv);
+    return -1;
+  }
+
+  downstream->reset_upstream_wtimer();
+
+  return 0;
+}
+
+int Http2Upstream::cors_reply(Downstream *downstream) {
+  int rv;
+  auto &resp = downstream->response();
+
+  auto &balloc = downstream->get_block_allocator();
+
+  resp.http_status = 200;
+  downstream->set_response_state(DownstreamState::MSG_COMPLETE);
+
+  auto lgconf = log_config();
+  lgconf->update_tstamp(std::chrono::system_clock::now());
+
+  auto date = make_string_ref(balloc, lgconf->tstamp->time_http);
+
+  auto nva = std::array<nghttp2_nv, 7>{
+      {http2::make_nv_ls_nocopy(":status", StringRef::from_lit("200")),
+       http2::make_nv_ll("access-control-allow-origin", "*"),
+       http2::make_nv_ll("access-control-allow-methods", "POST, GET, OPTIONS"),
+       http2::make_nv_ll("access-control-allow-headers",
+                         "X-Decoy-Request, X-Decoy-Expected-Length, X-Decoy-Dummy-Length"),
+       http2::make_nv_ll("access-control-max-age", "86400"),
+       http2::make_nv_ls_nocopy("server", get_config()->http.server_name),
+       http2::make_nv_ls_nocopy("date", date)}};
+
+  rv = nghttp2_submit_response(session_, downstream->get_stream_id(),
+                               nva.data(), nva.size(), NULL);
   if (rv < NGHTTP2_ERR_FATAL) {
     ULOG(FATAL, this) << "nghttp2_submit_response() failed: "
                       << nghttp2_strerror(rv);

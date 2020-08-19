@@ -71,6 +71,8 @@ public:
   int rst_stream(Downstream *downstream, uint32_t error_code);
   int terminate_session(uint32_t error_code);
   int error_reply(Downstream *downstream, unsigned int status_code);
+  // reply cors preflight option request for sending fake request
+  int cors_reply(Downstream *downstream);
 
   virtual void pause_read(IOCtrlReason reason);
   virtual int resume_read(IOCtrlReason reason, Downstream *downstream,
