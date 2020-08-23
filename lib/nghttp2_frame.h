@@ -573,20 +573,20 @@ void nghttp2_frame_origin_free(nghttp2_extension *frame, nghttp2_mem *mem);
 void nghttp2_frame_fake_request_init(nghttp2_extension *frame, uint8_t flags,
                                      int32_t stream_id,
                                      const nghttp2_priority_spec *pri_spec,
-                                     uint16_t expected_response_length,
-                                     uint16_t dummy_length);
+                                     uint32_t expected_response_length,
+                                     uint32_t dummy_length);
 void nghttp2_frame_fake_request_free(nghttp2_extension *frame);
 
 /**
  * Initializes FAKE_RESPONSE frame.
  */
-void nghttp2_frame_fake_response_init(nghttp2_extension *frame, int32_t stream_id, uint16_t expected_response_length);
+void nghttp2_frame_fake_response_init(nghttp2_extension *frame, int32_t stream_id, uint32_t expected_response_length);
 void nghttp2_frame_fake_response_free(nghttp2_extension *frame);
 
 /**
  * Initializes DUMMY frame.
  */
-void nghttp2_frame_dummy_init(nghttp2_extension *frame, uint16_t expected_response_length);
+void nghttp2_frame_dummy_init(nghttp2_extension *frame, uint32_t expected_response_length);
 void nghttp2_frame_dummy_free(nghttp2_extension *frame);
 /*
  * Returns the number of padding bytes after payload.  The total

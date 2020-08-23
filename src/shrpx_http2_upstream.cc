@@ -985,12 +985,11 @@ int send_data_callback(nghttp2_session *session, nghttp2_frame *frame,
 } // namespace
 
 namespace {
-int send_data_with_padding_callback(nghttp2_session *session,
-                                    nghttp2_frame *frame,
-                                    const uint8_t *framehd, size_t length,
-                                    nghttp2_data_source *source,
-                                    const uint8_t *padding, size_t padding_len,
-                                    void *user_data) {
+int send_data_with_dummy_callback(nghttp2_session *session,
+                                  nghttp2_frame *frame, const uint8_t *framehd,
+                                  size_t length, nghttp2_data_source *source,
+                                  const uint8_t *padding, size_t padding_len,
+                                  void *user_data) {
   auto downstream = static_cast<Downstream *>(source->ptr);
   auto upstream = static_cast<Http2Upstream *>(downstream->get_upstream());
   auto body = downstream->get_response_buf();
@@ -1151,8 +1150,8 @@ nghttp2_session_callbacks *create_http2_upstream_callbacks() {
   auto config = get_config();
 
   if (config->http2.defense)
-    nghttp2_session_callbacks_set_send_data_with_padding_callback(
-        callbacks, send_data_with_padding_callback);
+    nghttp2_session_callbacks_set_send_data_with_dummy_callback(
+        callbacks, send_data_with_dummy_callback);
   else
     nghttp2_session_callbacks_set_send_data_callback(callbacks,
                                                     send_data_callback);
@@ -1197,11 +1196,17 @@ Http2Upstream::Http2Upstream(ClientHandler *handler)
   auto &http2conf = config->http2;
 
   auto faddr = handler_->get_upstream_addr();
-  if (http2conf.defense)
+  if (http2conf.defense){
     nghttp2_option_set_outbound_restriction(http2conf.upstream.option,
                                             http2conf.min_outbound_length,
                                             http2conf.max_outbound_length);
-
+    nghttp2_option_set_builtin_recv_extension_type(http2conf.upstream.option,
+                                                   NGHTTP2_DUMMY);
+    nghttp2_option_set_builtin_recv_extension_type(http2conf.upstream.option,
+                                                   NGHTTP2_FAKE_REQUEST);
+    nghttp2_option_set_builtin_recv_extension_type(http2conf.upstream.option,
+                                                   NGHTTP2_FAKE_RESPONSE);
+  }
   rv =
       nghttp2_session_server_new2(&session_, http2conf.upstream.callbacks, this,
                                   faddr->alt_mode != UpstreamAltMode::NONE

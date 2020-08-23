@@ -502,12 +502,12 @@ int nghttp2_session_add_fake_request(nghttp2_session *session, uint8_t flags,
 /*
  * Adds FAKE_RESPONSE frame.
 */
-int nghttp2_session_add_fake_response(nghttp2_session *session, int32_t stream_id, uint16_t expected_response_length);
+int nghttp2_session_add_fake_response(nghttp2_session *session, int32_t stream_id, uint32_t expected_response_length);
 
 /*
  * Adds DUMMY frame.
  */
-int nghttp2_session_add_dummy(nghttp2_session *session, uint16_t expected_response_length);
+int nghttp2_session_add_dummy(nghttp2_session *session, uint32_t expected_response_length);
 
 /*
  * Creates new stream in |session| with stream ID |stream_id|,

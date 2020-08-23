@@ -256,11 +256,11 @@ void nghttp2_frame_origin_free(nghttp2_extension *frame, nghttp2_mem *mem) {
 void nghttp2_frame_fake_request_init(nghttp2_extension *frame, uint8_t flags,
                                      int32_t stream_id,
                                      const nghttp2_priority_spec *pri_spec,
-                                     uint16_t expected_response_length,
-                                     uint16_t dummy_length) {
+                                     uint32_t expected_response_length,
+                                     uint32_t dummy_length) {
   nghttp2_ext_fake_request *fake_request;
   nghttp2_frame_hd_init(&frame->hd,
-                        nghttp2_frame_priority_len(flags) + 2 + (size_t)dummy_length,
+                        nghttp2_frame_priority_len(flags) + 4 + (size_t)dummy_length,
                         NGHTTP2_FAKE_REQUEST, flags, stream_id);
   fake_request = frame->payload;
 
@@ -279,7 +279,7 @@ void nghttp2_frame_fake_request_free(nghttp2_extension *frame) { (void)frame; }
 
 void nghttp2_frame_fake_response_init(nghttp2_extension *frame,
                                       int32_t stream_id,
-                                      uint16_t expected_response_length) {
+                                      uint32_t expected_response_length) {
   nghttp2_ext_fake_response *fake_response;
   nghttp2_frame_hd_init(&frame->hd, expected_response_length, NGHTTP2_FAKE_RESPONSE, NGHTTP2_FLAG_NONE, stream_id);
   fake_response = frame->payload;
@@ -289,7 +289,7 @@ void nghttp2_frame_fake_response_init(nghttp2_extension *frame,
 void nghttp2_frame_fake_response_free(nghttp2_extension *frame) { (void)frame; }
 
 void nghttp2_frame_dummy_init(nghttp2_extension *frame,
-                                      uint16_t expected_response_length) {
+                                      uint32_t expected_response_length) {
   nghttp2_ext_dummy *dummy;
   nghttp2_frame_hd_init(&frame->hd, expected_response_length, NGHTTP2_DUMMY, NGHTTP2_FLAG_NONE, 0);
   dummy = frame->payload;
@@ -944,8 +944,8 @@ int nghttp2_frame_pack_fake_request(nghttp2_bufs *bufs,
   buf->last += nghttp2_frame_priority_len(frame->hd.flags);
 
   /* Pack expected length field. */
-  nghttp2_put_uint16be(buf->last, fake_request->expected_response_length);
-  buf->last += 2;
+  nghttp2_put_uint32be(buf->last, fake_request->expected_response_length);
+  buf->last += 4;
 
   // 2.
   /* Dummy part. */
@@ -1054,7 +1054,7 @@ void nghttp2_frame_unpack_fake_request_payload(nghttp2_extension *frame,
   p += nghttp2_frame_priority_len(frame->hd.flags);
 
   /* Unpack expected length field. */
-  fake_request->expected_response_length = nghttp2_get_uint16(p);
+  fake_request->expected_response_length = nghttp2_get_uint32(p);
   DEBUGF("recv: expected response length=%zu\n", fake_request->expected_response_length);
   fake_request->dummy_length = 0; /* This length is not important */
 }

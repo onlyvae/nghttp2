@@ -6499,7 +6499,7 @@ ssize_t nghttp2_session_mem_recv(nghttp2_session *session, const uint8_t *in,
               busy = 1;
 
               iframe->state = NGHTTP2_IB_READ_NBYTE;
-              inbound_frame_set_mark(iframe, 2 + pri_fieldlen);
+              inbound_frame_set_mark(iframe, 4 + pri_fieldlen);
 
               break;
             }
@@ -7857,7 +7857,7 @@ int nghttp2_session_add_fake_request(nghttp2_session *session, uint8_t flags,
 
 int nghttp2_session_add_fake_response(nghttp2_session *session,
                                       int32_t stream_id,
-                                      uint16_t expected_response_length) {
+                                      uint32_t expected_response_length) {
   int rv;
   nghttp2_outbound_item *item;
   nghttp2_frame *frame;
@@ -7895,7 +7895,7 @@ int nghttp2_session_add_fake_response(nghttp2_session *session,
 }
 
 int nghttp2_session_add_dummy(nghttp2_session *session,
-                                      uint16_t expected_response_length) {
+                                      uint32_t expected_response_length) {
   int rv;
   nghttp2_outbound_item *item;
   nghttp2_frame *frame;

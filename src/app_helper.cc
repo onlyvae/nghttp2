@@ -408,7 +408,7 @@ void print_frame(print_type ptype, const nghttp2_frame *frame) {
                 fake_request->pri_spec.stream_id, fake_request->pri_spec.weight,
                 fake_request->pri_spec.exclusive);
       }
-      fprintf(outfile, "expected_len=%d)\n", fake_request->expected_response_length);
+      fprintf(outfile, "expected_len=%u)\n", fake_request->expected_response_length);
     }
     break;
   }
