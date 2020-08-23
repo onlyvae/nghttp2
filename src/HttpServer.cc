@@ -1676,6 +1676,21 @@ int hd_on_frame_recv_callback(nghttp2_session *session,
       }
       
       auto method = stream->header.method;
+      
+      // reply cors preflight
+      if (method == StringRef::from_lit("OPTIONS")){
+        auto nva = make_array(
+            http2::make_nv_ls_nocopy(":status", StringRef::from_lit("200")),
+            http2::make_nv_ll("access-control-allow-origin", "*"),
+            http2::make_nv_ll("access-control-allow-methods", "POST, GET, OPTIONS"),
+            http2::make_nv_ll("access-control-allow-headers",
+                              "X-Decoy-Request, X-Decoy-Expected-Length, X-Decoy-Dummy-Length"),
+            http2::make_nv_ll("access-control-max-age", "86400"),
+            http2::make_nv_ls_nocopy("server", NGHTTPD_SERVER));
+
+        nghttp2_submit_response(session, frame->hd.stream_id, nva.data(), 6, NULL);
+      }
+
       if (hd->get_config()->echo_upload &&
           (method == StringRef::from_lit("POST") ||
            method == StringRef::from_lit("PUT"))) {
