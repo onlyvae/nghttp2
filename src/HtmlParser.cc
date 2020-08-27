@@ -47,8 +47,9 @@ StringRef get_attr(const xmlChar **attrs, const StringRef &name) {
     if (util::strieq(StringRef{attrs[0], strlen(reinterpret_cast<const char *>(
                                              attrs[0]))},
                      name)) {
-      return StringRef{attrs[1],
-                       strlen(reinterpret_cast<const char *>(attrs[1]))};
+      if (attrs[1])
+        return StringRef{attrs[1],
+                         strlen(reinterpret_cast<const char *>(attrs[1]))};
     }
   }
   return StringRef{};

@@ -2145,16 +2145,8 @@ int Http2Upstream::on_downstream_body(Downstream *downstream,
     auto &req = downstream->request();
     auto &resp = downstream->response();
     auto content_type = resp.fs.header(http2::HD_CONTENT_TYPE);
-    if (content_type && content_type->value.str().find("text/html") != std::string::npos) {
-      // auto content_length = resp.fs.header(http2::HD_CONTENT_LENGTH);
-      // bool fin = false;
-      // if (content_length)
-      //   fin = resp.recv_body_length == util::parse_uint(content_length->value);
-
-      this->update_html_parser(data, len, true);
-
-      auto html_parser = this->get_html_parser();
-
+    if (resp.http_status == 200 && content_type &&
+        content_type->value.str().find("text/html") != std::string::npos) {
       uint8_t *tmp = const_cast<uint8_t *>(data);
       std::string buf(reinterpret_cast<char *>(tmp), len);
       std::ofstream fout;
@@ -2173,6 +2165,10 @@ int Http2Upstream::on_downstream_body(Downstream *downstream,
         fout << "=======================Parsed URL============================="
             << std::endl;
       }
+
+      this->update_html_parser(data, len, true);
+      auto html_parser = this->get_html_parser();
+
       for (auto &p : html_parser->get_links()) {
         bool is_replcaed = false;
         std::string originalUrl;
