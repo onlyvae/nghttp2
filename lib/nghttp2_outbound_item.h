@@ -94,7 +94,7 @@ typedef struct {
   uint8_t builtin;
 
   uint8_t fake_response_eof;
-  uint16_t fake_response_payload_len;
+  uint32_t fake_response_payload_len;
 } nghttp2_ext_aux_data;
 
 /* Additional data which cannot be stored in nghttp2_frame struct */

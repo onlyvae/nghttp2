@@ -448,10 +448,22 @@ int nghttp2_frame_pack_fake_response(nghttp2_bufs *bufs, nghttp2_extension *fram
 int nghttp2_frame_pack_dummy(nghttp2_bufs *bufs, nghttp2_extension *frame);
 
 /**
+ * Fill buf with dummy
+ */
+int nghttp2_frame_fill_buf_with_dummy(nghttp2_bufs *bufs);
+
+/**
  * Unpacks FAKE_REQUEST wire format into |frame|.
  */
 void nghttp2_frame_unpack_fake_request_payload(nghttp2_extension *frame,
                                                uint8_t *payload);
+
+/**
+ * Unpacks DUMMY wire format into |frame|.
+ */
+void nghttp2_frame_unpack_dummy_payload(nghttp2_extension *frame,
+                                        uint8_t *payload);
+
 /*
  * Initializes HEADERS frame |frame| with given values.  |frame| takes
  * ownership of |nva|, so caller must not free it. If |stream_id| is
@@ -580,13 +592,16 @@ void nghttp2_frame_fake_request_free(nghttp2_extension *frame);
 /**
  * Initializes FAKE_RESPONSE frame.
  */
-void nghttp2_frame_fake_response_init(nghttp2_extension *frame, int32_t stream_id, uint32_t expected_response_length);
+void nghttp2_frame_fake_response_init(nghttp2_extension *frame,
+                                      int32_t stream_id, uint32_t dummy_length);
 void nghttp2_frame_fake_response_free(nghttp2_extension *frame);
 
 /**
  * Initializes DUMMY frame.
  */
-void nghttp2_frame_dummy_init(nghttp2_extension *frame, uint32_t expected_response_length);
+void nghttp2_frame_dummy_init(nghttp2_extension *frame, uint32_t stream_id,
+                              uint32_t dummy_length,
+                              uint32_t expected_response_length);
 void nghttp2_frame_dummy_free(nghttp2_extension *frame);
 /*
  * Returns the number of padding bytes after payload.  The total

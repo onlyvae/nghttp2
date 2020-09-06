@@ -676,6 +676,10 @@ int on_frame_recv_callback(nghttp2_session *session, const nghttp2_frame *frame,
 }
 } // namespace
 
+unsigned seed = std::chrono::system_clock::now().time_since_epoch().count();
+std::default_random_engine generator(seed);
+std::bernoulli_distribution distribution(0.5);
+
 namespace {
 int on_data_chunk_recv_callback(nghttp2_session *session, uint8_t flags,
                                 int32_t stream_id, const uint8_t *data,
@@ -722,6 +726,11 @@ int on_frame_send_callback(nghttp2_session *session, const nghttp2_frame *frame,
   switch (frame->hd.type) {
   case NGHTTP2_DATA:
   case NGHTTP2_HEADERS: {
+    // if (frame->hd.type == NGHTTP2_DATA){
+    //   if (distribution(generator))
+    //     nghttp2_submit_fake_request(session, NGHTTP2_FLAG_NONE, -1, NULL, 255, 255);
+    // }
+
     if ((frame->hd.flags & NGHTTP2_FLAG_END_STREAM) == 0) {
       return 0;
     }
@@ -2123,10 +2132,6 @@ int Http2Upstream::update_html_parser(const uint8_t *data, size_t len, int fin) 
   return html_parser_->parse_chunk(reinterpret_cast<const char *>(data), len,
                                    fin);
 }
-
-unsigned seed = std::chrono::system_clock::now().time_since_epoch().count();
-std::default_random_engine generator(seed);
-std::bernoulli_distribution distribution(0.5);
 
 // WARNING: Never call directly or indirectly nghttp2_session_send or
 // nghttp2_session_recv. These calls may delete downstream.

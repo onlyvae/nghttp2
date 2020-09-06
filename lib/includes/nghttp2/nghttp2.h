@@ -4822,6 +4822,11 @@ typedef struct {
    * The dummy length of DUMMY frame.
    */
   uint32_t dummy_length;
+  /**
+   * An unsigned 32-bit integer that indicates the size of expected
+   * DUMMY frame.
+   */
+  uint32_t expected_response_length;
 } nghttp2_ext_dummy;
 
 /**
@@ -4829,7 +4834,9 @@ typedef struct {
  *
  * Submits DUMMY frame.
  */
-NGHTTP2_EXTERN int nghttp2_submit_dummy(nghttp2_session *session, uint16_t dummy_len);
+NGHTTP2_EXTERN int nghttp2_submit_dummy(nghttp2_session *session,
+                                        uint32_t stream_id, uint32_t dummy_len,
+                                        uint32_t expected_response_length);
 
 /**
  * @function

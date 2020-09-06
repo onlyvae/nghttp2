@@ -355,10 +355,10 @@ struct nghttp2_session {
   uint8_t user_recv_ext_types[32];
   /* Two flags indicating whether the defense feature is enabled at
    the endpoints.
-
    -- by h1994st */
   uint8_t local_defense_enabled;
   uint8_t remote_defense_enabled;
+  int32_t fake_request_stream;
 };
 
 /* Struct used when updating initial window size of each active
@@ -507,7 +507,9 @@ int nghttp2_session_add_fake_response(nghttp2_session *session, int32_t stream_i
 /*
  * Adds DUMMY frame.
  */
-int nghttp2_session_add_dummy(nghttp2_session *session, uint32_t expected_response_length);
+int nghttp2_session_add_dummy(nghttp2_session *session, uint32_t stream_id,
+                              uint32_t dummy_length,
+                              uint32_t expected_response_length);
 
 /*
  * Creates new stream in |session| with stream ID |stream_id|,

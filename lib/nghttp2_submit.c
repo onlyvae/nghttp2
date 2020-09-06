@@ -831,6 +831,9 @@ int nghttp2_submit_fake_request(nghttp2_session *session, uint8_t flags,
                                             expected_len, dummy_len);
 }
 
-int nghttp2_submit_dummy(nghttp2_session *session, uint16_t dummy_len) {
-  return nghttp2_session_add_dummy(session, dummy_len);
+int nghttp2_submit_dummy(nghttp2_session *session, uint32_t stream_id,
+                         uint32_t dummy_len,
+                         uint32_t expected_response_length) {
+  return nghttp2_session_add_dummy(session, stream_id, dummy_len,
+                                   expected_response_length);
 }
