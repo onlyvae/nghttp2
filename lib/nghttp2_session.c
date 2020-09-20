@@ -5462,8 +5462,8 @@ int nghttp2_session_on_dummy_received(nghttp2_session *session,
   //       session, frame, NGHTTP2_ERR_PROTO, "DUMMY: stream_id != 0");
   stream = nghttp2_session_get_stream(session, frame->hd.stream_id);
   dummy = frame->ext.payload;
-  if (dummy->expected_response_length && !session_is_closing(session) &&
-      stream && !(stream->flags & NGHTTP2_STREAM_FLAG_CLOSED)) {
+  if (dummy->expected_response_length && !session_is_closing(session)){
+      // stream && !(stream->flags & NGHTTP2_STREAM_FLAG_CLOSED)) {
     /* response padding */
     rv = nghttp2_session_add_dummy(session, frame->hd.stream_id,
                                    dummy->expected_response_length, 0);
