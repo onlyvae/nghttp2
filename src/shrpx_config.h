@@ -202,6 +202,7 @@ constexpr auto SHRPX_OPT_AUTO_PUSH = StringRef::from_lit("auto-push");
 constexpr auto SHRPX_OPT_DEFENSE = StringRef::from_lit("defense");
 constexpr auto SHRPX_OPT_MIN_OUTBOUND_LENGTH = StringRef::from_lit("min-outbound-length");
 constexpr auto SHRPX_OPT_MAX_OUTBOUND_LENGTH = StringRef::from_lit("max-outbound-length");
+constexpr auto SHRPX_OPT_RESTRICT_SEND_INTERVAL = StringRef::from_lit("restrict-send-interval");
 constexpr auto SHRPX_OPT_MIRROR_MODE = StringRef::from_lit("mirror-mode");
 constexpr auto SHRPX_OPT_BACKEND_HTTP2_CONNECTIONS_PER_WORKER =
     StringRef::from_lit("backend-http2-connections-per-worker");
@@ -1009,6 +1010,7 @@ struct Config {
   bool daemon;
   bool http2_proxy;
   bool mirror_mode;
+  bool restrict_send_interval;
   // Run nghttpx in single process mode.  With this mode, signal
   // handling is omitted.
   bool single_process;
@@ -1140,6 +1142,7 @@ enum {
   SHRPX_OPTID_DEFENSE,
   SHRPX_OPTID_MIN_OUTBOUND_LENGTH,
   SHRPX_OPTID_MAX_OUTBOUND_LENGTH,
+  SHRPX_OPTID_RESTRICT_SEND_INTERVAL,
   SHRPX_OPTID_NO_SERVER_REWRITE,
   SHRPX_OPTID_NO_STRIP_INCOMING_EARLY_DATA,
   SHRPX_OPTID_NO_STRIP_INCOMING_X_FORWARDED_PROTO,

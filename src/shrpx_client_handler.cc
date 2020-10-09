@@ -100,7 +100,9 @@ namespace {
 void writecb(struct ev_loop *loop, ev_io *w, int revents) {
   auto conn = static_cast<Connection *>(w->data);
   auto handler = static_cast<ClientHandler *>(conn->data);
-
+  // if (LOG_ENABLED(FATAL)) {
+  //   CLOG(FATAL, handler) << "shrpx_client_handler::writecb";
+  // }
   if (handler->do_write() != 0) {
     delete handler;
     return;
@@ -254,6 +256,11 @@ int ClientHandler::write_tls() {
 
   if (on_write() != 0) {
     return -1;
+  }
+ // stop read data from nghttp2
+  if (get_config()->restrict_send_interval) {
+    conn_.wlimit.stopw();
+    return 0;
   }
 
   auto iovcnt = upstream_->response_riovec(&iov, 1);
@@ -508,6 +515,8 @@ ClientHandler::~ClientHandler() {
   }
 
   ev_timer_stop(conn_.loop, &reneg_shutdown_timer_);
+  if (ev_is_active(&conn_.socket_send_timer_))
+    ev_timer_stop(conn_.loop, &conn_.socket_send_timer_);
 
   // TODO If backend is http/2, and it is in CONNECTED state, signal
   // it and make it loopbreak when output is zero.

@@ -33,6 +33,10 @@
 
 #include <openssl/err.h>
 
+#include "shrpx_upstream.h"
+#include "shrpx_http2_upstream.h"
+#include "shrpx_client_handler.h"
+
 #include "shrpx_tls.h"
 #include "shrpx_memcached_request.h"
 #include "shrpx_log.h"
@@ -51,6 +55,64 @@ void BIO_set_data(BIO *bio, void *ptr) { bio->ptr = ptr; }
 void BIO_set_init(BIO *bio, int init) { bio->init = init; }
 
 #endif // !LIBRESSL_2_7_API && !OPENSSL_1_1_API
+
+namespace {
+void socket_send_timer_cb(struct ev_loop *loop, ev_timer *w, int revents) {
+  auto conn = static_cast<Connection *>(w->data);
+  auto handler = static_cast<ClientHandler *>(conn->data);
+
+  if (LOG_ENABLED(FATAL)) {
+    CLOG(FATAL, handler) << "[EVENT_LOOP:" << loop << "] [ENTER TIMER:" << w << "]";
+  }
+
+  struct iovec iov;
+  auto upstream = handler->get_upstream();
+  if(upstream){
+    if (handler->on_write() != 0) {
+      delete handler;
+      return;
+    }
+    auto iovcnt = upstream->response_riovec(&iov, 1);
+    if (iovcnt == 0) {
+      conn->start_tls_write_idle();
+
+      conn->wlimit.stopw();
+      ev_timer_stop(loop, &conn->wt);
+      CLOG(FATAL, handler) << "stop shrpx_client_handler::writecb";
+    } else {
+      for (;;) {
+        auto nwrite = conn->write_tls(iov.iov_base, iov.iov_len);
+        if (nwrite < 0) {
+          break;
+          // return -1;
+        }
+
+        if (nwrite == 0) {
+          break;
+          // return 0;
+        }
+
+        upstream->response_drain(nwrite);
+
+        iovcnt = upstream->response_riovec(&iov, 1);
+        if (iovcnt == 0) {
+          break;
+          // return 0;
+        }
+      }
+    }
+  }
+
+  w->repeat = 0.1;
+  // // ev_timer_stop(loop, w);
+  ev_timer_again(loop, w);
+
+  if (LOG_ENABLED(FATAL)) {
+    CLOG(FATAL, handler) << "[EVENT_LOOP:" << loop << "] [EXIT TIMER:" << w << "]";
+  }
+
+}
+} // namespace
 
 Connection::Connection(struct ev_loop *loop, int fd, SSL *ssl,
                        MemchunkPool *mcpool, ev_tstamp write_timeout,
@@ -90,6 +152,16 @@ Connection::Connection(struct ev_loop *loop, int fd, SSL *ssl,
 
   if (ssl) {
     set_ssl(ssl);
+  }
+
+  // Add socket send timer
+  if (get_config()->restrict_send_interval && fd != -1) {
+    ev_timer_init(&socket_send_timer_, socket_send_timer_cb, 0., 0.1);
+    socket_send_timer_.data = this;
+    ev_timer_again(loop, &socket_send_timer_);
+    if (LOG_ENABLED(FATAL)) {
+      CLOG(FATAL, this) << "Start socket send timer:" << &socket_send_timer_;
+    }
   }
 }
 

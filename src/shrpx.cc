@@ -2496,15 +2496,17 @@ HTTP/2:
   --defense
               Enable defense.
   --min-outbound-length=<N>
-            The minimum length of data chunk sending from the remote
-            endpoint.
-            Default: )"
-    << NGHTTP2_DEFAULT_MIN_OUTBOUND_LEN << R"(
+              The minimum length of data chunk sending from the remote
+              endpoint.
+              Default: )"
+      << NGHTTP2_DEFAULT_MIN_OUTBOUND_LEN << R"(
   --max-outbound-length=<N>
-            The maximum length of data chunk sending from the remote
-            endpoint.
-            Default: )"
-    << NGHTTP2_DEFAULT_MAX_OUTBOUND_LEN << R"(
+              The maximum length of data chunk sending from the remote
+              endpoint.
+              Default: )"
+      << NGHTTP2_DEFAULT_MAX_OUTBOUND_LEN << R"(
+  --restrict-send-interval
+              Enable send time interval restriction.
   --frontend-http2-optimize-write-buffer-size
               (Experimental) Enable write  buffer size optimization in
               frontend HTTP/2 TLS  connection.  This optimization aims
@@ -3543,6 +3545,7 @@ int main(int argc, char **argv) {
         {SHRPX_OPT_DEFENSE.c_str(), no_argument, &flag, 169},
         {SHRPX_OPT_MIN_OUTBOUND_LENGTH.c_str(), required_argument, &flag, 170},
         {SHRPX_OPT_MAX_OUTBOUND_LENGTH.c_str(), required_argument, &flag, 171},
+        {SHRPX_OPT_RESTRICT_SEND_INTERVAL.c_str(), no_argument, &flag, 172},
         {nullptr, 0, nullptr, 0}};
 
     int option_index = 0;
@@ -4357,6 +4360,10 @@ int main(int argc, char **argv) {
       case 171:
         // --max-outbound-length
         cmdcfgs.emplace_back(SHRPX_OPT_MAX_OUTBOUND_LENGTH, StringRef{optarg});
+        break;
+      case 172:
+        // --restrict-send-interval
+        cmdcfgs.emplace_back(SHRPX_OPT_RESTRICT_SEND_INTERVAL, StringRef::from_lit("yes"));
         break;
       default:
         break;
