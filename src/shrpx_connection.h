@@ -159,7 +159,6 @@ struct Connection {
   ev_io rev;
   ev_timer wt;
   ev_timer rt;
-  ev_timer socket_send_timer_;
   RateLimit wlimit;
   RateLimit rlimit;
   struct ev_loop *loop;

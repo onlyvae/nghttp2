@@ -2175,10 +2175,6 @@ int option_lookup_token(const char *name, size_t namelen) {
       }
       break;
     }
-    case 'l':
-      if (util::strieq_l("restrict-send-interva", name, 21)) {
-        return SHRPX_OPTID_RESTRICT_SEND_INTERVAL;
-      }
     break;
   case 23:
     switch (name[22]) {
@@ -3288,10 +3284,6 @@ int parse_config(Config *config, int optid, const StringRef &opt,
     return 0;
   case SHRPX_OPTID_DEFENSE:
     config->http2.defense = util::strieq_l("yes", optarg);
-    return 0;
-  case SHRPX_OPTID_RESTRICT_SEND_INTERVAL:
-    LOG(INFO) << "\x1b[32m[WFP-DEFENSE]\x1b[0m send time interval restriction enabled.";
-    config->restrict_send_interval = util::strieq_l("yes", optarg);
     return 0;
   case SHRPX_OPTID_MIN_OUTBOUND_LENGTH:
     config->http2.min_outbound_length = strtoul(optarg.c_str(), nullptr, 10);

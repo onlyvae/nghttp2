@@ -1038,10 +1038,7 @@ int send_data_with_dummy_callback(nghttp2_session *session,
   downstream->response_sent_body_length += length;
 
   auto max_buffer_size = upstream->get_max_buffer_size();
-  if (LOG_ENABLED(INFO)) {
-    ULOG(INFO, upstream) << "\x1b[32m[WFP-DEFENSE]\x1b[0m write " << length
-                         << " DATA with " << padding_len << " padding";
-  }
+
   return wb->rleft() >= max_buffer_size ? NGHTTP2_ERR_PAUSE : 0;
 }
 } // namespace
