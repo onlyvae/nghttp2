@@ -2493,6 +2493,8 @@ HTTP/2:
               via Link header field is also supported.
   --auto-push
               Enable HTTP/2 auto server push.
+  --random-padding
+              Enable HTTP/2 random padding
   --defense
               Enable defense.
   --min-outbound-length=<N>
@@ -3543,6 +3545,7 @@ int main(int argc, char **argv) {
         {SHRPX_OPT_DEFENSE.c_str(), no_argument, &flag, 169},
         {SHRPX_OPT_MIN_OUTBOUND_LENGTH.c_str(), required_argument, &flag, 170},
         {SHRPX_OPT_MAX_OUTBOUND_LENGTH.c_str(), required_argument, &flag, 171},
+        {SHRPX_OPT_RANDOM_PADDING.c_str(), no_argument, &flag, 172},
         {nullptr, 0, nullptr, 0}};
 
     int option_index = 0;
@@ -4357,6 +4360,10 @@ int main(int argc, char **argv) {
       case 171:
         // --max-outbound-length
         cmdcfgs.emplace_back(SHRPX_OPT_MAX_OUTBOUND_LENGTH, StringRef{optarg});
+        break;
+      case 172:
+        // --random-padding
+        cmdcfgs.emplace_back(SHRPX_OPT_RANDOM_PADDING, StringRef::from_lit("yes"));
         break;
       default:
         break;

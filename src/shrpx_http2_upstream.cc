@@ -1165,7 +1165,7 @@ nghttp2_session_callbacks *create_http2_upstream_callbacks() {
     nghttp2_session_callbacks_set_send_data_callback(callbacks,
                                                     send_data_callback);
 
-  if (config->padding) {
+  if (config->padding or config->http2.random_padding) {
     nghttp2_session_callbacks_set_select_padding_callback(
         callbacks, http::select_padding_callback);
   }

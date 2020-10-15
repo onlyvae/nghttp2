@@ -170,6 +170,15 @@ std::string colorizeHeaders(const char *hdrs) {
 ssize_t select_padding_callback(nghttp2_session *session,
                                 const nghttp2_frame *frame, size_t max_payload,
                                 void *user_data) {
+  if (get_config()->http2.random_padding) {
+    /* randomly pad */
+    unsigned seed = std::chrono::system_clock::now().time_since_epoch().count();
+    std::default_random_engine generator(seed);
+    std::uniform_int_distribution<int> distribution(0, 255);
+    auto random_padlen = distribution(generator);
+    // ULOG(INFO, this) << "\x1b[31m[WFP-DEFENSE]\x1b[0m random padding length: " << random_padlen << std::endl;
+    return std::min(max_payload, frame->hd.length + random_padlen);
+  }
   return std::min(max_payload, frame->hd.length + get_config()->padding);
 }
 

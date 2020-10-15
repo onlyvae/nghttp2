@@ -199,6 +199,7 @@ constexpr auto SHRPX_OPT_BACKEND_RESPONSE_BUFFER =
     StringRef::from_lit("backend-response-buffer");
 constexpr auto SHRPX_OPT_NO_SERVER_PUSH = StringRef::from_lit("no-server-push");
 constexpr auto SHRPX_OPT_AUTO_PUSH = StringRef::from_lit("auto-push");
+constexpr auto SHRPX_OPT_RANDOM_PADDING = StringRef::from_lit("random-padding");
 constexpr auto SHRPX_OPT_DEFENSE = StringRef::from_lit("defense");
 constexpr auto SHRPX_OPT_MIN_OUTBOUND_LENGTH = StringRef::from_lit("min-outbound-length");
 constexpr auto SHRPX_OPT_MAX_OUTBOUND_LENGTH = StringRef::from_lit("max-outbound-length");
@@ -796,6 +797,7 @@ struct Http2Config {
   } timeout;
   bool no_cookie_crumbling;
   bool no_server_push;
+  bool random_padding;
   bool auto_push;               // For auto push -- by h1994st
   bool defense;                 // Defense advertisement -- by h1994st
   uint16_t min_outbound_length; // For defense usage -- by h1994st
@@ -1140,6 +1142,7 @@ enum {
   SHRPX_OPTID_DEFENSE,
   SHRPX_OPTID_MIN_OUTBOUND_LENGTH,
   SHRPX_OPTID_MAX_OUTBOUND_LENGTH,
+  SHRPX_OPTID_RANDOM_PADDING,
   SHRPX_OPTID_NO_SERVER_REWRITE,
   SHRPX_OPTID_NO_STRIP_INCOMING_EARLY_DATA,
   SHRPX_OPTID_NO_STRIP_INCOMING_X_FORWARDED_PROTO,

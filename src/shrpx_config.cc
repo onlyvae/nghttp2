@@ -1898,6 +1898,11 @@ int option_lookup_token(const char *name, size_t namelen) {
         return SHRPX_OPTID_NO_SERVER_PUSH;
       }
       break;
+    case 'g':
+      if (util::strieq_l("random-paddin", name, 13)) {
+        return SHRPX_OPTID_RANDOM_PADDING;
+      }
+      break;
     case 'p':
       if (util::strieq_l("no-verify-ocs", name, 13)) {
         return SHRPX_OPTID_NO_VERIFY_OCSP;
@@ -3276,6 +3281,12 @@ int parse_config(Config *config, int optid, const StringRef &opt,
     return 0;
   case SHRPX_OPTID_AUTO_PUSH:
     config->http2.auto_push = util::strieq_l("yes", optarg);
+    LOG(INFO) << "\x1b[32m[WFP-DEFENSE]\x1b[0m auto push enabled.";
+
+    return 0;
+  case SHRPX_OPTID_RANDOM_PADDING:
+    config->http2.random_padding = util::strieq_l("yes", optarg);
+    LOG(INFO) << "\x1b[32m[WFP-DEFENSE]\x1b[0m random padding enabled.";
 
     return 0;
   case SHRPX_OPTID_MIRROR_MODE:
@@ -3284,6 +3295,7 @@ int parse_config(Config *config, int optid, const StringRef &opt,
     return 0;
   case SHRPX_OPTID_DEFENSE:
     config->http2.defense = util::strieq_l("yes", optarg);
+    LOG(INFO) << "\x1b[32m[WFP-DEFENSE]\x1b[0m outbound restriction mode enabled.";
     return 0;
   case SHRPX_OPTID_MIN_OUTBOUND_LENGTH:
     config->http2.min_outbound_length = strtoul(optarg.c_str(), nullptr, 10);
