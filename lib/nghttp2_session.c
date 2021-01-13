@@ -4771,12 +4771,12 @@ int nghttp2_session_update_local_settings(nghttp2_session *session,
     case NGHTTP2_SETTINGS_DEFENSE_ENABLED:
       session->local_settings.defense_enabled = iv[i].value;
       break;
-    case NGHTTP2_SETTINGS_MIN_OUTBOUND_LEN:
-      session->local_settings.min_outbound_len = iv[i].value;
-      break;
-    case NGHTTP2_SETTINGS_MAX_OUTBOUND_LEN:
-      session->local_settings.max_outbound_len = iv[i].value;
-      break;
+    // case NGHTTP2_SETTINGS_MIN_OUTBOUND_LEN:
+    //   session->local_settings.min_outbound_len = iv[i].value;
+    //   break;
+    // case NGHTTP2_SETTINGS_MAX_OUTBOUND_LEN:
+    //   session->local_settings.max_outbound_len = iv[i].value;
+    //   break;
     }
   }
 
@@ -4943,32 +4943,32 @@ int nghttp2_session_on_settings_received(nghttp2_session *session,
       session->remote_defense_enabled = (uint8_t)entry->value;
 
       break;
-    case NGHTTP2_SETTINGS_MIN_OUTBOUND_LEN:
+    // case NGHTTP2_SETTINGS_MIN_OUTBOUND_LEN:
 
-      /* Check outbound length min value from remote endpoint -- by h1994st */
-      if (entry->value < NGHTTP2_DEFAULT_MIN_OUTBOUND_LEN ||
-          entry->value > NGHTTP2_DEFAULT_MAX_OUTBOUND_LEN) {
-        return session_handle_invalid_connection(
-            session, frame, NGHTTP2_ERR_PROTO,
-            "SETTINGS: invalid NGHTTP2_SETTINGS_MIN_OUTBOUND_LEN");
-      }
+    //   /* Check outbound length min value from remote endpoint -- by h1994st */
+    //   if (entry->value < NGHTTP2_DEFAULT_MIN_OUTBOUND_LEN ||
+    //       entry->value > NGHTTP2_DEFAULT_MAX_OUTBOUND_LEN) {
+    //     return session_handle_invalid_connection(
+    //         session, frame, NGHTTP2_ERR_PROTO,
+    //         "SETTINGS: invalid NGHTTP2_SETTINGS_MIN_OUTBOUND_LEN");
+    //   }
 
-      session->aob.framebufs.min_chunk_length = entry->value + 1;
+    //   session->aob.framebufs.min_chunk_length = entry->value + 1;
 
-      break;
-    case NGHTTP2_SETTINGS_MAX_OUTBOUND_LEN:
+    //   break;
+    // case NGHTTP2_SETTINGS_MAX_OUTBOUND_LEN:
 
-      /* Check outbound length max value from remote endpoint -- by h1994st */
-      if (entry->value < NGHTTP2_DEFAULT_MIN_OUTBOUND_LEN ||
-          entry->value > NGHTTP2_DEFAULT_MAX_OUTBOUND_LEN) {
-        return session_handle_invalid_connection(
-            session, frame, NGHTTP2_ERR_PROTO,
-            "SETTINGS: invalid NGHTTP2_SETTINGS_MAX_OUTBOUND_LEN");
-      }
+    //   /* Check outbound length max value from remote endpoint -- by h1994st */
+    //   if (entry->value < NGHTTP2_DEFAULT_MIN_OUTBOUND_LEN ||
+    //       entry->value > NGHTTP2_DEFAULT_MAX_OUTBOUND_LEN) {
+    //     return session_handle_invalid_connection(
+    //         session, frame, NGHTTP2_ERR_PROTO,
+    //         "SETTINGS: invalid NGHTTP2_SETTINGS_MAX_OUTBOUND_LEN");
+    //   }
 
-      session->aob.framebufs.max_chunk_length = entry->value + 1;
+    //   session->aob.framebufs.max_chunk_length = entry->value + 1;
 
-      break;
+    //   break;
     }
   }
 
